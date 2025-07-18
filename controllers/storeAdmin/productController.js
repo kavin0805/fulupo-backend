@@ -5,15 +5,15 @@ import SubProduct from "../../modules/storeAdmin/SubProduct.js";
 // Add Product
 export const addProduct = async (req, res) => {
   try {
-    const { name, storeId, categoryId, mrpPrice, discountPrice, netQty } = req.body;
+    const { name, categoryId, mrpPrice, discountPrice, netQty } = req.body;
     const productImage = req.file?.path || null;
 
     if (!name || name.length < 2) {
       return res.status(400).json({ message: 'Product name is too short to generate code' });
     }
 
-    // 🔁 Check if product with same name and netQty already exists for the same store and category
-    const duplicate = await Product.findOne({ name, storeId, categoryId });
+    // 🔁 Check if product with same name and netQty already exists for the same category
+    const duplicate = await Product.findOne({ name, categoryId });
     if (duplicate) {
       return res.status(400).json({ message: 'Product with same name already exists' });
     }
@@ -39,7 +39,6 @@ export const addProduct = async (req, res) => {
     // ✅ Create new product
     const product = new Product({
       name,
-      storeId,
       categoryId,
       productImage,
       productCode,
@@ -59,11 +58,11 @@ export const addProduct = async (req, res) => {
 // Update Product
 export const updateProduct = async (req, res) => {
   try {
-    const { name, storeId, categoryId, mrpPrice, discountPrice, netQty } = req.body;
+    const { name, categoryId, mrpPrice, discountPrice, netQty } = req.body;
     const productImage = req.file?.path;
 
     // Validation
-    if (!name || !storeId || !categoryId) {
+    if (!name || !categoryId) {
       return res.status(400).json({ message: 'Required fields are missing' });
     }
 
@@ -71,18 +70,16 @@ export const updateProduct = async (req, res) => {
     const duplicate = await Product.findOne({
       _id: { $ne: req.params.id },
       name: { $regex: new RegExp(`^${name.trim()}$`, 'i') },
-      storeId,
       categoryId
     });
 
     if (duplicate) {
-      return res.status(400).json({ message: 'Product with same name already exists in this store and category' });
+      return res.status(400).json({ message: 'Product with same name already exists in this category' });
     }
 
     // Prepare update data
     const updateData = {
       name: name.trim(),
-      storeId,
       categoryId,
       mrpPrice,
       discountPrice,
@@ -99,7 +96,6 @@ export const updateProduct = async (req, res) => {
     // Update the product
     const product = await Product.findByIdAndUpdate(req.params.id, updateData, { new: true })
       .populate('categoryId', 'name')
-      .populate('storeId', 'store_name');
 
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
@@ -115,10 +111,9 @@ export const updateProduct = async (req, res) => {
 
 
 
-export const getAllProductsByStore = async (req, res) => {
+export const getAllProducts = async (req, res) => {
   try {
-    const { storeId } = req.params;
-    const products = await Product.find({ storeId }).populate('categoryId', 'name');
+    const products = await Product.find({}).populate('categoryId', 'name');
 
     const result = await Promise.all(products.map(async (product) => {
       const subProducts = await SubProduct.find({ productId: product._id });
@@ -129,19 +124,18 @@ export const getAllProductsByStore = async (req, res) => {
       };
     }));
 
-    res.json({data : result });
+    res.json({ data: result });
   } catch (err) {
-    res.status(500).json({ message: 'Error fetching store products', error: err.message });
+    res.status(500).json({ message: 'Error fetching products', error: err.message });
   }
 };
 
+
 export const getProductById = async (req, res) => {
   const { id } = req.params;         // Product ID
-  const { storeId } = req.query;     // Optional storeId for ownership check
 
   try {
-    const query = storeId ? { _id: id, storeId } : { _id: id };
-    const product = await Product.findOne(query).populate('categoryId', 'name');
+    const product = await Product.findOne(id).populate('categoryId', 'name');
 
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
@@ -161,11 +155,11 @@ export const getProductById = async (req, res) => {
 };
 
 
-export const getProductsByCategoryAndStore = async (req, res) => {
-  const { categoryId, storeId } = req.params;
+export const getProductsByCategory = async (req, res) => {
+  const { categoryId } = req.params;
 
   try {
-    const products = await Product.find({ categoryId, storeId }).populate('categoryId', 'name');
+    const products = await Product.find({ categoryId }).populate('categoryId', 'name');
 
     const result = await Promise.all(products.map(async (product) => {
       const subProducts = await SubProduct.find({ productId: product._id });
@@ -178,19 +172,18 @@ export const getProductsByCategoryAndStore = async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    res.status(500).json({ message: 'Error fetching products by category and store', error: err.message });
+    res.status(500).json({ message: 'Error fetching products by category', error: err.message });
   }
 };
 
 
-export const getProductsGroupedByCategoryAndStore = async (req, res) => {
-  const { storeId } = req.params;
+export const getProductsGroupedByCategory = async (req, res) => {
 
   try {
-    const categories = await ProductCategory.find({ storeId });
+    const categories = await ProductCategory.find({ });
 
     const result = await Promise.all(categories.map(async (category) => {
-      const products = await Product.find({ categoryId: category._id, storeId }).populate('categoryId', 'name');
+      const products = await Product.find({ categoryId: category._id }).populate('categoryId', 'name');
 
       const enrichedProducts = await Promise.all(products.map(async (product) => {
         const subProducts = await SubProduct.find({ productId: product._id });
@@ -210,13 +203,13 @@ export const getProductsGroupedByCategoryAndStore = async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    res.status(500).json({ message: 'Error grouping products by category and store', error: err.message });
+    res.status(500).json({ message: 'Error grouping products by category', error: err.message });
   }
 };
 
 
 
-// // Get All Products
+// // Get All Products  
 // export const getAllProducts = async (req, res) => {
 //   try {
 //     const products = await Product.find().populate('categoryId', 'name');

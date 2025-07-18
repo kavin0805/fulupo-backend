@@ -14,5 +14,11 @@ router.post('/get',  verifyStoreAdmin ,  getAllPurchases);
 router.post('/getById/:id', verifyStoreAdmin , getPurchaseById);
 router.post('/get/filter/:type', verifyStoreAdmin , getPurchasesByPeriod); // day/week/month/year
 router.post('/get/date-range', verifyStoreAdmin , getPurchasesByDateRange);
+// /api/purchase/by-vendor
+
+// {
+//   "storeId": "your_store_id_here",
+//   "vendorName": "Vendor One"
+// }
 
 export default router;

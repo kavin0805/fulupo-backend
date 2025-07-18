@@ -61,6 +61,9 @@ export const addSale = async (req, res) => {
       products: saleProducts,
     });
 
+    console.log("newSale" , newSale);
+    
+
     await newSale.save();
     res.status(201).json({ message: "Sale completed", data: newSale });
   } catch (err) {

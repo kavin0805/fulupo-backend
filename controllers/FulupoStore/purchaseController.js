@@ -1,5 +1,6 @@
 import Inventory from '../../modules/FulupoStore/Inventory.js';
 import Purchase from '../../modules/FulupoStore/Purchase.js';
+import Vendor from '../../modules/FulupoStore/Vendor.js';
 import Product from '../../modules/storeAdmin/Product.js';
 
 // Add Purchase
@@ -15,22 +16,66 @@ export const addPurchase = async (req, res) => {
     const bill_image = req.files?.map(file => file.path);
     const parsedProducts = typeof product === 'string' ? JSON.parse(product) : product;
 
-          console.log("enrichedProducts" , parsedProducts);
+    // ✅ Create Vendor if not exists
+    let vendor = await Vendor.findOne({ storeId, name: vendorName });
 
+    if (!vendor) {
+      vendor = new Vendor({
+        storeId,
+        vendorName: vendorName,
+        vendorGst: vendorGst,
+        vendorMobile: vendorMobile,
+        vendorLandline: vendorLandline,
+        vendorAddress: vendorAddress
+      });
+      await vendor.save();
+    }
 
     const enrichedProducts = await Promise.all(parsedProducts.map(async (p) => {
-      const dbProduct = await Product.findOneAndUpdate(
-        { storeId, name: { $regex: new RegExp(`^${p.product_name}$`, 'i') } },
-        { $set: { purchasePrice: p.product_rate }, $inc: { showAvlQty: Number(p.product_qty) } },
-        { new: true }
-      );
-      if (!dbProduct) throw new Error(`Product "${p.product_name}" not found`);      
+      // ✅ Find or Create Product
+      let dbProduct = await Product.findOne({  name: { $regex: new RegExp(`^${p.product_name}$`, 'i') } });
 
+          // 🔠 Generate prefix from first 2 letters of name
+    const prefix = p.product_name.substring(0, 2).toUpperCase();
+
+    // 🔢 Find last product with same prefix and generate next code
+    const regex = new RegExp(`^${prefix}\\d{3}$`);
+    const lastProduct = await Product.find({ productCode: { $regex: regex } })
+      .sort({ productCode: -1 })
+      .limit(1);
+
+    let nextNumber = 1;
+    if (lastProduct.length > 0) {
+      const lastCode = lastProduct[0].productCode;
+      const lastNum = parseInt(lastCode.slice(2), 10);
+      nextNumber = lastNum + 1;
+    }
+
+    const productCode = `${prefix}${String(nextNumber).padStart(3, '0')}`;
+
+      if (!dbProduct) {
+        dbProduct = new Product({
+          name: p.product_name,
+          categoryId: p.categoryId || null, // if category is provided
+          productImage: p.product_img || '', // fallback image if any
+          purchasePrice: p.product_rate,
+          showAvlQty: p.product_qty,
+          productCode : productCode
+        });
+        await dbProduct.save();
+      } else {
+        // ✅ Update existing product price and available quantity
+        dbProduct.purchasePrice = p.product_rate;
+        dbProduct.showAvlQty += Number(p.product_qty);
+        await dbProduct.save();
+      }
+
+      // ✅ Inventory Handling
       let inventory = await Inventory.findOne({ storeId, product_id: dbProduct._id });
       const previousQty = inventory?.quantity || 0;
       const updatedQty = previousQty + Number(p.product_qty);
-      const percentage = 100;  //(Number(p.product_qty) / updatedQty) * 
- 
+      const percentage = 100;
+
       if (inventory) {
         inventory.totalQty = updatedQty;
         inventory.quantity = updatedQty;
@@ -42,7 +87,7 @@ export const addPurchase = async (req, res) => {
           product_id: dbProduct._id,
           product_img: dbProduct.productImage,
           product_name: p.product_name,
-          totalQty:updatedQty,
+          totalQty: updatedQty,
           quantity: updatedQty,
           product_rate: p.product_rate,
           product_gst_percent: p.product_gst_percent,
@@ -64,14 +109,24 @@ export const addPurchase = async (req, res) => {
     }));
 
     const newPurchase = new Purchase({
-      storeId, vendorName, vendorGst, vendorMobile,
-      vendorLandline, vendorAddress, purchaseDate,
-      purchaseBillNo, overallTotal, product: enrichedProducts, bill_image
+      storeId,
+      vendorName,
+      vendorGst,
+      vendorMobile,
+      vendorLandline,
+      vendorAddress,
+      purchaseDate,
+      purchaseBillNo,
+      overallTotal,
+      product: enrichedProducts,
+      bill_image
     });
 
     await newPurchase.save();
-    res.status(201).json({ message: 'Purchase added', data: newPurchase });
+    res.status(201).json({ message: 'Purchase added successfully', data: newPurchase });
+
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Error adding purchase', error: err.message });
   }
 };
@@ -204,7 +259,8 @@ export const getAllPurchases = async (req, res) => {
         return {
           ...prod._doc,
           return_qty,
-          return_amount
+          return_amount,
+          productImage: prod.product_id?.productImage || '',
         };
       });
 
@@ -224,7 +280,7 @@ export const getAllPurchases = async (req, res) => {
 
 // Get Purchase by ID
 export const getPurchaseById = async (req, res) => {
-  try {
+  try {  
     const { id, storeId } = req.body;
 
     const filter = { _id: id };
@@ -350,3 +406,26 @@ export const getPurchasesByDateRange = async (req, res) => {
   }
 };
 
+
+
+export const getPurchasesByVendor = async (req, res) => {
+  try {
+    const { storeId, vendorName } = req.body;
+
+    if (!storeId || !vendorName) {
+      return res.status(400).json({ message: 'Store ID and Vendor Name are required' });
+    }
+
+    const purchases = await Purchase.find({ storeId, vendorName })
+      .populate('product.product_id', 'name productImage productCode');
+
+    if (!purchases || purchases.length === 0) {
+      return res.status(404).json({ message: 'No purchases found for this vendor' });
+    }
+
+    res.json({ count: purchases.length, data: purchases });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error fetching purchases by vendor', error: err.message });
+  }
+};

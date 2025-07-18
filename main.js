@@ -18,6 +18,7 @@ import wastageRoutes from './routes/FulupoStore/wastageRoutes.js'
 import profitLossRoutes from './routes/FulupoStore/profitLossRoutes.js'
 import summaryRoutes from './routes/FulupoStore/summaryRoutes.js'
 import purchaseReturnRoutes from './routes/FulupoStore/purchaseReturnRoutes.js'
+import vendorRoutes from './routes/FulupoStore/vendorRoutes.js'
 
 const app = express();
 dotenv.config();
@@ -55,6 +56,7 @@ const startServer = async () => {
     app.use('/api/profit-loss', profitLossRoutes);
     app.use('/api/summary', summaryRoutes);
     app.use('/api/purchase-return', purchaseReturnRoutes);
+    app.use('/api/vendor', vendorRoutes);
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
