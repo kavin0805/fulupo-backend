@@ -42,8 +42,6 @@ export const addStore = async (req, res) => {
   try {
     const files = req.files;
 
-  
-
     // Check if all required files are uploaded
     const requiredFiles = ['store_image', 'store_licence', 'owner_kyc_details'];
     for (const field of requiredFiles) {
@@ -51,6 +49,9 @@ export const addStore = async (req, res) => {
         return res.status(400).json({ message: `Missing required file: ${field}` });
       }
     }
+
+    console.log("req.user" , req.user);
+    
 
     const storeName = req.body.store_name || '';
     if (!storeName || storeName.length < 2) {
@@ -64,12 +65,15 @@ export const addStore = async (req, res) => {
     const store = new Store({
       ...req.body,
       store_unique_id,
-      createdBy: req.user.userId,
+      createdBy: req.user._id,
       store_logo: files.store_logo[0].path,
       store_image: files.store_image.map(img => img.path),
       store_licence: files.store_licence.map(img => img.path),
       owner_kyc_details: files.owner_kyc_details.map(img => img.path),
     });
+
+    console.log("store" , store);
+    
     
 
     await store.save();
@@ -87,15 +91,22 @@ export const getAllStores = async (req, res) => {
       .populate('store_category_id', 'name')
       .populate('fulupoSoft', 'name')
       .populate('createdBy', 'username name mobile_number') // 👈 Add this line
-      .populate('updatedBy', 'username name mobile_number'); 
-
-      console.log("");
-      
+      .populate('updatedBy', 'username name mobile_number');      
       
     res.json({ data: stores });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error fetching stores', error: err.message });
+  }
+};
+
+
+export const getStoreList = async (req, res) => {
+  try {
+    const stores = await Store.find({}, '_id store_name'); // only select _id and name
+    res.json({ data: stores });
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching store list', error: err.message });
   }
 };
 
@@ -136,20 +147,45 @@ export const getStoresByCategoryId = async (req, res) => {
 
 export const updateStore = async (req, res) => {
   try {
+    const files = req.files;
+    const storeId = req.params.id;
 
-     const updateData = {
+    const updateData = {
       ...req.body,
-      updatedBy: req.user.userId // 👈 store who updated this
+      updatedBy: req.user._id,
     };
 
-    const store = await Store.findByIdAndUpdate(req.params.id, updateData, { new: true });
+    // Handle optional uploaded files — same fields as in addStore
+    if (files?.store_logo?.[0]) {
+      updateData.store_logo = files.store_logo[0].path;
+    }
 
-    if (!store) return res.status(404).json({ message: 'Store not found' });
-    res.json(store);
+    if (files?.store_image?.length) {
+      updateData.store_image = files.store_image.map((img) => img.path);
+    }
+
+    if (files?.store_licence?.length) {
+      updateData.store_licence = files.store_licence.map((img) => img.path);
+    }
+
+    if (files?.owner_kyc_details?.length) {
+      updateData.owner_kyc_details = files.owner_kyc_details.map((img) => img.path);
+    }
+
+    const store = await Store.findByIdAndUpdate(storeId, updateData, { new: true });
+
+    if (!store) {
+      return res.status(404).json({ message: "Store not found" });
+    }
+
+    res.json({ message: "Store updated successfully", store });
   } catch (err) {
-    res.status(400).json({ message: 'Error updating store', error: err.message });
+    console.error(err);
+    res.status(400).json({ message: "Error updating store", error: err.message });
   }
 };
+
+
 
 export const deleteStore = async (req, res) => {
   try {

@@ -2,7 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './lib/db.js';
-// import createInitialAdmin from './intiAdmin.js';
+import createInitialAdmin from './intiAdmin.js';
 import storeRoutes from './routes/onBoarding/storeRoutes.js'
 import authRoutes from './routes/onBoarding/authRoutes.js'
 // import masterAuthRoutes from './routes/storeAdmin/masterAuthRoutes.js'
@@ -19,6 +19,10 @@ import profitLossRoutes from './routes/FulupoStore/profitLossRoutes.js'
 import summaryRoutes from './routes/FulupoStore/summaryRoutes.js'
 import purchaseReturnRoutes from './routes/FulupoStore/purchaseReturnRoutes.js'
 import vendorRoutes from './routes/FulupoStore/vendorRoutes.js'
+import gsmProductRoutes from './routes/onBoarding/gsmProductRoutes.js'
+import MasterAdminRoutes from './routes/masterAdmin/MasterAdminRoutes.js'
+import MasterAdminptdCatRoutes from './routes/masterAdmin/masterAdminPtdCatRoutes.js'
+import masterAdminAuthRoutes from './routes/masterAdmin/masterAdminAuthRoutes.js'
 
 const app = express();
 dotenv.config();
@@ -31,17 +35,22 @@ app.use(cors());
 const startServer = async () => {
   try {
     await connectDB();
-    // await createInitialAdmin();
+    await createInitialAdmin();
     // console.log("Connected to DB and initialized admin");
 
     app.get("/", (req, res) => res.send("API Running"));
 
     // for onBoarding
     app.use('/api/auth', authRoutes);
-    app.use('/api/', storeRoutes);
+    app.use('/api/store', storeRoutes);
+    app.use('/api/gsm', gsmProductRoutes);
   
     // for masterAdmin
-    // app.use('/api', masterAuthRoutes);
+    app.use('/api/masteradmin' , masterAdminAuthRoutes)
+    app.use('/api/masterAdminProducts', MasterAdminRoutes);
+    app.use('/api/masterAdminPdtCat', MasterAdminptdCatRoutes);
+
+    //for storeAdmin
     app.use('/api/category' , productCategoryRoutes)
     app.use('/api/products' , productRoutes)
     app.use('/api/subProducts' , subProductRoutes)

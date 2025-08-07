@@ -34,9 +34,7 @@ export const verifyStoreAdmin = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const store = await Store.findById(decoded.storeId);
-    
-    console.log("store" , decoded);
+    const store = await Store.findById(decoded.storeId); 
     
 
     if (!store) {
@@ -49,3 +47,35 @@ export const verifyStoreAdmin = async (req, res, next) => {
     return res.status(401).json({ message: "Unauthorized: Token invalid", error: err.message });
   }
 };
+
+
+const verifyOnBoardStoreAdminToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized: Token missing" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Check if it's a store admin token (has storeId)
+    if (decoded.storeId) {
+      const store = await Store.findById(decoded.storeId);
+      if (!store) {
+        return res.status(401).json({ message: "Unauthorized: Invalid store token" });
+      }
+      req.store = store;
+    }
+
+    // You can handle other roles here if needed
+    req.user = decoded; // Attach decoded info (useful for both admin/store)
+    next();
+
+  } catch (err) {
+    return res.status(401).json({ message: "Unauthorized: Invalid token", error: err.message });
+  }
+};
+
+export default verifyOnBoardStoreAdminToken;

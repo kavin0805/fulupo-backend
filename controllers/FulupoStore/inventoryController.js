@@ -3,8 +3,18 @@ import Inventory from "../../modules/FulupoStore/Inventory.js";
 export const getInventoryByStore = async (req, res) => {
   try {
     const { storeId } = req.body;
-    const inventory = await Inventory.find({ storeId })
-      .populate('product_id', 'name productImage productCode');
+    // const inventory = await Inventory.find({ storeId })
+    //   .populate('product_id', 'name productImage productCode');
+
+const inventory = await Inventory.find({storeId}).populate({
+      path: "product_id",
+      select: "name productImage productCode masterProductId",
+      populate: {
+        path: "masterProductId",
+        select: "productImage"
+      }
+    });
+      
     res.json({ data: inventory });
   } catch (err) {
     res.status(500).json({ message: 'Error fetching inventory by store', error: err.message });

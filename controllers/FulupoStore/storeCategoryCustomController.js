@@ -11,7 +11,14 @@ export const addStoreCategory = async (req, res) => {
     }
 
     // Check for duplicate category name (case-insensitive)
-    const existingCategory = await StoreCategoryCustom.findOne({ name: { $regex: new RegExp(`^${name}$`, 'i') } });
+    // const existingCategory = await StoreCategoryCustom.findOne({ name: { $regex: new RegExp(`^${name}$`, 'i') } });
+
+    const StoreCategoryCustomCheck = await StoreCategoryCustom.find();
+
+    const existingCategory = StoreCategoryCustomCheck.find(cat =>
+  cat.name.trim().toLowerCase() === name.trim().toLowerCase()
+);
+
     if (existingCategory) {
       return res.status(400).json({ message: 'Category name already exists' });
     }

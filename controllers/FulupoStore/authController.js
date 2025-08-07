@@ -8,20 +8,19 @@ export const storeLogin = async (req, res) => {
   const { mobile } = req.body;
 
   try {
-    const store = await Store.findOne({ contact_no: mobile });
-
-    console.log("store" , store);
-    
+    const store = await Store.findOne({ contact_no: mobile });    
 
     if (!store) {
       return res.status(404).json({ message: 'Mobile number not found' });
     }
 
-    // Generate OTP (mock or real)
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiry = new Date(Date.now() + 5 * 60 * 1000); // 5 min expiry
+    if (!store.isVerified) {
+      return res.status(403).json({ message: 'Store is not verified by admin' });
+    }
 
-    // Save OTP in DB (for demo)
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = new Date(Date.now() + 5 * 60 * 1000);
+
     store.otp = otp;
     store.otpExpiry = expiry;
     await store.save();

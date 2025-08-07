@@ -4,6 +4,7 @@ const productSchema = new mongoose.Schema({
   product_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
   product_name: { type: String, required: true },
   product_rate: { type: Number, required: true },
+  mrpPrice: { type: Number, required: true },
   // product_qty_kg: { type: Number},
   product_qty: { type: Number , required : true},
   product_gst_percent: { type: Number, required: true },
@@ -32,7 +33,7 @@ const purchaseSchema = new mongoose.Schema({
   purchaseBillNo: { type: String },
   overallTotal: { type: Number, required: true },
   product: [productSchema],
-  bill_image: { type: [String] },
+  bill_image: { type: [String] },    
 }, { timestamps: true });
 
 export default mongoose.model('Purchase', purchaseSchema);

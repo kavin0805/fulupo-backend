@@ -14,6 +14,7 @@ export const addSale = async (req, res) => {
       const product = await Product.findById(p.product_id);
       if (!product) throw new Error(`Product not found: ${p.product_id}`);
 
+
       const unitPrice = product.discountPrice || product.mrpPrice;
       const gstPercent = product.purchasePrice ? Number(p.gst_percent) || 0 : 0;
       const gstAmount = (unitPrice * p.quantity * gstPercent) / 100;
@@ -61,8 +62,6 @@ export const addSale = async (req, res) => {
       products: saleProducts,
     });
 
-    console.log("newSale" , newSale);
-    
 
     await newSale.save();
     res.status(201).json({ message: "Sale completed", data: newSale });

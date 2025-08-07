@@ -13,9 +13,7 @@ export const getAllProductProfitLoss = async (req, res) => {
 
     let startDate;
     let endDate;
-
-    
-
+ 
     switch (type) {
       case 'day':
         startDate = moment.tz('Asia/Kolkata').startOf('day').toDate();
@@ -49,7 +47,6 @@ export const getAllProductProfitLoss = async (req, res) => {
     
 
     const products = await Product.find({ storeId });
-
     const results = await Promise.all(products.map(async (product) => {
       const productId = product._id;
 
@@ -70,10 +67,7 @@ export const getAllProductProfitLoss = async (req, res) => {
             }
           }
         }
-      ]);
-
-      console.log("purchase" , purchase);
-      
+      ]);       
 
       const [sale] = await Sales.aggregate([
         {

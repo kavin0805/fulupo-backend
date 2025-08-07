@@ -70,6 +70,8 @@ export const getOverallSummary = async (req, res) => {
     const wastages = await Wastage.aggregate([
       { $match: { storeId: new mongoose.Types.ObjectId(storeId), date: { $gte: start, $lte: end } } },
       { $unwind: "$productList" },
+      { $lookup: { from: "products", localField: "productList.product_id", foreignField: "_id", as: "productDetails"}},
+      { $unwind: "$productDetails" },
       {
         $group: {
           _id: {
@@ -77,11 +79,12 @@ export const getOverallSummary = async (req, res) => {
           },
           totalWastageQty: { $sum: "$productList.quantity" },
           totalWastageCost: {
-            $sum: { $multiply: ["$productList.quantity", "$productList.purchasePrice"] }
+            $sum: { $multiply: ["$productList.quantity", "$productDetails.purchasePrice"] }
           }
         }
       }
-    ]);
+    ]);  
+
 
     // === MERGE ALL DATA ===
     const summaryMap = new Map();

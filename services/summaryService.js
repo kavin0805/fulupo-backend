@@ -9,16 +9,49 @@ import Wastage from '../modules/FulupoStore/Wastage.js';
 
 export const fetchStoreOverview = async (storeId) => {
   const totalProducts = await Product.countDocuments({ storeId });
+
   const totalInventoryQty = await Inventory.aggregate([
     { $match: { storeId: new mongoose.Types.ObjectId(storeId) } },
     { $group: { _id: null, total: { $sum: '$quantity' } } }
   ]);
+
   const lowStock = await Inventory.find({ storeId, percentage: { $lt: 20 } }).limit(10);
+
+  // Enrich low stock with latest vendor info
+const enrichedLowStock = await Promise.all(
+  lowStock.map(async (item) => {
+    const purchases = await Purchase.find({
+      storeId,
+      'product.product_id': item.product_id
+    }).sort({ purchaseDate: -1 }).select('vendorName vendorMobile purchaseDate');
+
+
+    const uniqueVendors = [];
+    const seen = new Set();
+
+    for (const p of purchases) {
+      const key = `${p.vendorName}-${p.vendorMobile}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueVendors.push({
+          vendorName: p.vendorName,
+          vendorMobile: p.vendorMobile,
+          purchaseDate: p.purchaseDate
+        });
+      }
+    }
+
+    return {
+      ...item.toObject(),
+      vendors: uniqueVendors
+    };
+  })
+);
 
   return {
     totalProducts,
     totalInventoryQty: totalInventoryQty[0]?.total || 0,
-    lowStockProducts: lowStock
+    data : enrichedLowStock
   };
 };
 
