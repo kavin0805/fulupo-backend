@@ -23,6 +23,7 @@ import gsmProductRoutes from './routes/onBoarding/gsmProductRoutes.js'
 import MasterAdminRoutes from './routes/masterAdmin/MasterAdminRoutes.js'
 import MasterAdminptdCatRoutes from './routes/masterAdmin/masterAdminPtdCatRoutes.js'
 import masterAdminAuthRoutes from './routes/masterAdmin/masterAdminAuthRoutes.js'
+import voiceRoutes from './routes/FulupoStore/voiceRoutes.js'
 
 const app = express();
 dotenv.config();
@@ -66,6 +67,9 @@ const startServer = async () => {
     app.use('/api/summary', summaryRoutes);
     app.use('/api/purchase-return', purchaseReturnRoutes);
     app.use('/api/vendor', vendorRoutes);
+
+    // for grocery
+    app.use("/api/grocery", voiceRoutes);
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
