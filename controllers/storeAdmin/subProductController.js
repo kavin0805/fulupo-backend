@@ -106,7 +106,7 @@ export const updateSubProduct = async (req, res) => {
 
 
 // 🔁 Your Groq API Key
-const apiKey = "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";
+const apiKey = process.env.GROQ_API_KEY;
 const transcriptionUrl = "https://api.groq.com/openai/v1/audio/transcriptions";
 const translationUrl = "https://api.groq.com/openai/v1/audio/translations";
 
