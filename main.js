@@ -27,6 +27,9 @@ import voiceRoutes from './routes/FulupoStore/voiceRoutes.js'
 import consumerAuthRoutes from './routes/consumer/consumerAuthRoutes.js'
 import wishListRoutes from './routes/consumer/wishListRoutes.js'
 import cartRoutes from './routes/consumer/cartRoutes.js'
+import consumerAddressRoutes from './routes/consumer/consumerAddressRoutes.js'
+import orderRoutes from './routes/consumer/orderRoutes.js'
+import replacementRoutes from './routes/consumer/replacementRoutes.js'
 
 const app = express();
 dotenv.config();
@@ -78,6 +81,10 @@ const startServer = async () => {
     app.use("/api/consumer", consumerAuthRoutes);
     app.use("/api/consumer/wishList", wishListRoutes);
     app.use("/api/consumer/cart", cartRoutes);
+    app.use("/api/consumer/address", consumerAddressRoutes);
+    app.use("/api/consumer/order", orderRoutes);
+    app.use("/api/consumer/exchange", replacementRoutes);
+
 
 
 

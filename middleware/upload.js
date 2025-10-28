@@ -13,21 +13,28 @@ const storage = multer.diskStorage({
 
       if (req.body.categoryId) {
         // ✅ Fetch category name from DB
-        const categoryDoc = await masterProductCategory.findById(req.body.categoryId);
-        
+        const categoryDoc = await masterProductCategory.findById(
+          req.body.categoryId
+        );
+
         if (categoryDoc && categoryDoc.name) {
-          folderPath = `uploads/general/${categoryDoc.name.replace(/\s+/g, "_")}`;
+          folderPath = `uploads/general/${categoryDoc.name.replace(
+            /\s+/g,
+            "_"
+          )}`;
         }
       }
-      
-       if (req.body.store_name) {
+
+      if (req.body.store_name) {
         // sanitize store name (replace spaces with underscores)
         const storeName = req.body.store_name.replace(/\s+/g, "_");
         folderPath = `uploads/store/${storeName}`;
       }
 
-       if (req.body.purchaseBillNo) {
-        const storeDoc = await Store.findById(req.body.storeId).select("store_name");
+      if (req.body.purchaseBillNo) {
+        const storeDoc = await Store.findById(req.body.storeId).select(
+          "store_name"
+        );
         if (storeDoc && storeDoc.store_name) {
           // Replace spaces with underscore to make safe folder name
           const safeStoreName = storeDoc.store_name.replace(/\s+/g, "_");
@@ -35,9 +42,18 @@ const storage = multer.diskStorage({
         }
       }
 
+      if (req.body.orderId && req.body.reason) {
+        // Fetch the customer or store for organizing folders
+        const storeDoc = await Store.findById(req.body.storeId).select(
+          "store_name"
+        );
+        const safeStoreName =
+          storeDoc?.store_name?.replace(/\s+/g, "_") || "unknown_store";
+        folderPath = `uploads/replacements/${safeStoreName}/${req.body.orderId}`;
+      }
+
       fs.mkdirSync(folderPath, { recursive: true });
       cb(null, folderPath);
-
     } catch (error) {
       console.error("Error in upload destination:", error);
       cb(error, null);
@@ -47,7 +63,7 @@ const storage = multer.diskStorage({
   filename: function (req, file, cb) {
     const ext = path.extname(file.originalname);
     cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
-  }
+  },
 });
 
-export const upload = multer({ storage });;
+export const upload = multer({ storage });
