@@ -30,6 +30,8 @@ import cartRoutes from './routes/consumer/cartRoutes.js'
 import consumerAddressRoutes from './routes/consumer/consumerAddressRoutes.js'
 import orderRoutes from './routes/consumer/orderRoutes.js'
 import replacementRoutes from './routes/consumer/replacementRoutes.js'
+import storeDeliveryPersonRoutes from './routes/storeAdmin/deliveryPersonRoutes.js'
+import deliveryPersonRoutes from './routes/delivery/deliveryPersonRoutes.js'
 
 const app = express();
 dotenv.config();
@@ -61,6 +63,7 @@ const startServer = async () => {
     app.use('/api/category' , productCategoryRoutes)
     app.use('/api/products' , productRoutes)
     app.use('/api/subProducts' , subProductRoutes)
+    app.use('/api/storeDeliveryPerson', storeDeliveryPersonRoutes)
 
     // for Fulupo Store
     app.use('/api/auth' , storeAuthRoutes)
@@ -84,6 +87,9 @@ const startServer = async () => {
     app.use("/api/consumer/address", consumerAddressRoutes);
     app.use("/api/consumer/order", orderRoutes);
     app.use("/api/consumer/exchange", replacementRoutes);
+
+    // for delivery person
+    app.use('/api/deliveryPerson', deliveryPersonRoutes)
 
 
 

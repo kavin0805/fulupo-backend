@@ -52,6 +52,16 @@ const storage = multer.diskStorage({
         folderPath = `uploads/replacements/${safeStoreName}/${req.body.orderId}`;
       }
 
+      // to upload Delivery Person Documents
+      if (req.body.deliveryPersonId || req.body.storeId) {
+        const storeDoc = await Store.findById(req.body.storeId).select(
+          "store_name"
+        );
+        const safeStoreName =
+          storeDoc?.store_name?.replace(/\s+/g, "_") || "unknown_store";
+        folderPath = `uploads/delivery-person/${safeStoreName}`;
+      }
+
       fs.mkdirSync(folderPath, { recursive: true });
       cb(null, folderPath);
     } catch (error) {
