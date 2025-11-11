@@ -7,6 +7,8 @@ import {
 import {
   getMyProfile,
   updateMyProfile,
+  completeDelivery,
+  respondToOrder
 } from "../../controllers/delivery/deliveryPersonController.js";
 import { upload } from "../../middleware/upload.js";
 import { verifyDeliveryPerson } from "../../middleware/deliveryPersonAuth.js";
@@ -23,7 +25,7 @@ router.post("/logout", logoutDeliveryPerson);
 router.get("/profile", verifyDeliveryPerson, getMyProfile);
 // update my profile
 router.put(
-  "/delivery-person/update",
+  "/update",
   verifyDeliveryPerson,
   upload.fields([
     { name: "profileImage", maxCount: 1 },
@@ -36,5 +38,7 @@ router.put(
   ]),
   updateMyProfile
 );
+router.post("/respond", verifyDeliveryPerson, respondToOrder);
+router.post("/complete-delivery", verifyDeliveryPerson, completeDelivery);
 
 export default router;

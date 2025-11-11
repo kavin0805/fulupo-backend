@@ -4,7 +4,10 @@ import { addMasterProduct, deleteMasterProduct, getAllMasterProducts, getAllMast
 import { upload } from '../../middleware/upload.js';
 import {auth} from '../../middleware/auth.js';
 import { authMasterAdmin } from '../../middleware/authMasterAdmin.js';
+
+
 const router = express.Router();
+
 
 router.post('/add', authMasterAdmin , upload.single('productImage') , addMasterProduct);
 router.get('/get', auth ,  getAllMasterProducts);

@@ -44,8 +44,8 @@ const orderSchema = new mongoose.Schema(
 
     orderStatus: {
       type: String,
-      enum: ["Placed", "Processing", "Shipped", "Delivered", "Cancelled"],
-      default: "Placed",
+      enum: ["PENDING_STORE_APPROVAL","WAITING_FOR_DP_ASSIGNMENT","ASSIGNED_TO_DP","OUT_FOR_DELIVERY","DELIVERED","REJECTED_BY_DP"],
+      default: "PENDING_STORE_APPROVAL",
     },
     slotId: { type: mongoose.Schema.Types.ObjectId, ref: "StoreDeliverySlot" },
     slotDate: String,

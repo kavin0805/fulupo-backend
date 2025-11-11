@@ -1,8 +1,11 @@
 import crypto from "crypto";
-import Order from '../../modules/consumer/Order.js'
-import {razorpayInstance} from '../../utils/razorpay.js'
-import Inventory from '../../modules/FulupoStore/Inventory.js'
-import Product from '../../modules/storeAdmin/Product.js'
+import Order from "../../modules/consumer/Order.js";
+import { razorpayInstance } from "../../utils/razorpay.js";
+import Inventory from "../../modules/FulupoStore/Inventory.js";
+import Product from "../../modules/storeAdmin/Product.js";
+import StoreDeliverySlot from "../../modules/storeAdmin/storeDeliverySlot.js";
+import mongoose from "mongoose";
+import DeliveryPerson from "../../modules/storeAdmin/deliveryPerson.js";
 
 // 🧾 Create Order (COD or Razorpay)
 // export const createOrder = async (req, res) => {
@@ -59,20 +62,77 @@ import Product from '../../modules/storeAdmin/Product.js'
 //   }
 // };
 
-export const createOrder = async (req, res) => {
+// function to generate delivery pin
+function generatePin() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// list the available slots to place an order
+export const listAvailableSlots = async (req, res) => {
+  try {
+    const { date, storeId: storeIdFromQuery } = req.query;
+    if (!date) return res.status(400).json({ message: "date is required" });
+
+    // Resolve consumer's storeId
+    let consumerStoreId = req.consumer?.storeId;
+    if (!consumerStoreId) {
+      const me = await Consumer.findById(req.consumer._id).select("storeId");
+      if (!me?.storeId) return res.status(403).json({ message: "Consumer is not linked to any store" });
+      consumerStoreId = me.storeId.toString();
+    }
+
+    // If a storeId was sent, ensure it matches the consumer's store
+    if (storeIdFromQuery && storeIdFromQuery !== String(consumerStoreId)) {
+      return res.status(403).json({ message: "Forbidden: storeId does not match consumer's store" });
+    }
+
+    // use the consumer's storeId for querying
+    const slots = await StoreDeliverySlot.find({
+      storeId: consumerStoreId,
+      date,
+      isActive: true,
+      $expr: { $lt: ["$bookedCount", "$capacity"] },
+    }).sort({ start: 1 });
+
+    res.json({ data: slots });
+  } catch (e) {
+    res.status(500).json({ message: "List error", error: e.message });
+  }
+};
+
+
+// place the order on the selected slot
+export const PlaceOrderWithSlot = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
   try {
     const consumerId = req.consumer._id;
-    const { storeId, addressId, items, totalAmount, paymentMode } = req.body;
+    const {
+      storeId,
+      addressId,
+      items,
+      totalAmount,
+      paymentMode,
+      date,
+      start,
+      end,
+    } = req.body;
 
-    if (!storeId || !addressId || !items?.length || !totalAmount || !paymentMode)
+    if (
+      !storeId ||
+      !addressId ||
+      !items?.length ||
+      !totalAmount ||
+      !paymentMode ||
+      !date ||
+      !start ||
+      !end
+    )
       return res.status(400).json({ message: "Missing required fields" });
 
-    // 🧮 Reduce Product & Inventory Quantity (common for all order types)
-    
+    // Reduce Product & Inventory Quantity (common for all order types)
     for (const item of items) {
       const product = await Product.findById(item.productId);
-      
-
       if (!product) throw new Error(`Product not found: ${item.productId}`);
 
       // Find store inventory
@@ -97,22 +157,62 @@ export const createOrder = async (req, res) => {
       await product.save();
     }
 
-    // 💵 COD flow
-    if (paymentMode === "COD") {
-      const order = await Order.create({
-        consumerId,
+    // Try to reserve the slot
+    const slot = await StoreDeliverySlot.findOneAndUpdate(
+      {
         storeId,
-        addressId,
-        items,
-        totalAmount,
-        paymentMode,
-        paymentStatus: "Pending",
-      });
+        date,
+        start,
+        end,
+        isActive: true,
+        $expr: { $lt: ["$bookedCount", "$capacity"] },
+      },
+      { $inc: { bookedCount: 1 } },
+      { new: true, session }
+    );
 
-      return res.json({ message: "Order placed successfully (COD)", order });
+    if (!slot) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(409).json({ message: "Slot full or inactive now" });
     }
 
-    // 💳 Razorpay flow
+    // Generate Delivery PIN
+    const deliveryPin = generatePin();
+
+    // COD flow
+    if (paymentMode === "COD") {
+      const order = await Order.create(
+        [
+          {
+            consumerId,
+            storeId,
+            addressId,
+            items,
+            totalAmount,
+            paymentMode,
+            paymentStatus: "Pending",
+            slotId: slot._id,
+            slotDate: date,
+            slotStart: start,
+            slotEnd: end,
+            deliveryPin,
+            orderStatus: "PENDING_STORE_APPROVAL",
+          },
+        ],
+        { session }
+      );
+      await session.commitTransaction();
+      session.endSession();
+
+      return res.json({
+        message: "Order placed (COD)",
+        order: order[0],
+        pinPreview: deliveryPin,
+      });
+    }
+
+    // Razorpay flow
     const options = {
       amount: Math.round(totalAmount * 100),
       currency: "INR",
@@ -121,32 +221,52 @@ export const createOrder = async (req, res) => {
 
     const razorpayOrder = await razorpayInstance.orders.create(options);
 
-    const order = await Order.create({
-      consumerId,
-      storeId,
-      addressId,
-      items,
-      totalAmount,
-      paymentMode: "Razorpay",
-      paymentStatus: "Pending",
-      razorpayOrderId: razorpayOrder.id,
-    });
+    const order = await Order.create(
+      [
+        {
+          consumerId,
+          storeId,
+          addressId,
+          items,
+          totalAmount,
+          paymentMode: "Razorpay",
+          paymentStatus: "Pending",
+          razorpayOrderId: razorpayOrder.id,
+          slotId: slot._id,
+          slotDate: date,
+          slotStart: start,
+          slotEnd: end,
+          deliveryPin,
+          orderStatus: "PENDING_STORE_APPROVAL",
+        },
+      ],
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
 
     res.json({
       message: "Razorpay order created",
-      order,
+      order: order[0],
       razorpayOrder,
       key: process.env.RAZORPAY_KEY_ID,
+      pinPreview: deliveryPin,
     });
   } catch (err) {
-    res.status(500).json({ message: "Error creating order", error: err.message });
+    await session.abortTransaction();
+    session.endSession();
+    res
+      .status(500)
+      .json({ message: "Error creating order", error: err.message });
   }
 };
 
 // ✅ Verify Razorpay Payment
 export const verifyPayment = async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } =
+      req.body;
 
     const body = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSignature = crypto
@@ -168,9 +288,13 @@ export const verifyPayment = async (req, res) => {
       return res.json({ message: "Payment verified successfully", order });
     }
 
-    res.status(400).json({ message: "Invalid signature, payment verification failed" });
+    res
+      .status(400)
+      .json({ message: "Invalid signature, payment verification failed" });
   } catch (err) {
-    res.status(500).json({ message: "Error verifying payment", error: err.message });
+    res
+      .status(500)
+      .json({ message: "Error verifying payment", error: err.message });
   }
 };
 
@@ -185,10 +309,11 @@ export const getMyOrders = async (req, res) => {
 
     res.json({ count: orders.length, orders });
   } catch (err) {
-    res.status(500).json({ message: "Error fetching orders", error: err.message });
+    res
+      .status(500)
+      .json({ message: "Error fetching orders", error: err.message });
   }
 };
-
 
 // 📄 Get Single Order by ID
 export const getOrderById = async (req, res) => {
@@ -207,15 +332,15 @@ export const getOrderById = async (req, res) => {
 
     res.json({ message: "Order fetched successfully", order });
   } catch (err) {
-    res.status(500).json({ message: "Error fetching order", error: err.message });
+    res
+      .status(500)
+      .json({ message: "Error fetching order", error: err.message });
   }
 };
 
-
-
 export const updatePaymentStatus = async (req, res) => {
   try {
-    const { orderId , status} = req.body;
+    const { orderId, status } = req.body;
 
     const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ message: "Order not found" });
@@ -225,6 +350,52 @@ export const updatePaymentStatus = async (req, res) => {
 
     res.json({ message: "Payment status updated", order });
   } catch (err) {
-    res.status(500).json({ message: "Error updating payment status", error: err.message });
+    res
+      .status(500)
+      .json({ message: "Error updating payment status", error: err.message });
   }
 };
+
+// rating the delivery person
+export const rateDelivery = async (req, res) => {
+  try {
+    const consumerId = req.consumer._id;
+    const { orderId, rating } = req.body;
+
+    if (!rating || rating < 1 || rating > 5)
+      return res.status(400).json({ message: "Rating must be between 1 and 5" });
+
+    const order = await Order.findOne({
+      _id: orderId,
+      consumerId,
+      orderStatus: "DELIVERED"
+    });
+
+    if (!order)
+      return res.status(400).json({ message: "Order not delivered yet, can't rate" });
+
+    if (!order.deliveryPersonId)
+      return res.status(400).json({ message: "No delivery person assigned for this order" });
+
+    order.deliveryRating = rating;
+    await order.save();
+
+    const dp = await DeliveryPerson.findById(order.deliveryPersonId);
+    if (!dp) return res.status(404).json({ message: "Delivery person not found" });
+
+    // Recalculate average rating
+    const ratedOrders = await Order.find({
+      deliveryPersonId: dp._id,
+      deliveryRating: { $exists: true, $ne: null }
+    });
+
+    const avg = ratedOrders.reduce((sum, o) => sum + o.deliveryRating, 0) / ratedOrders.length;
+    dp.averageRating = Number(avg.toFixed(2));
+    await dp.save();
+
+    res.json({ message: "Thank you for rating!", rating, newAverage: dp.averageRating });
+  } catch (err) {
+    res.status(500).json({ message: "Rating error", error: err.message });
+  }
+};
+

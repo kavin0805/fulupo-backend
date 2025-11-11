@@ -32,6 +32,9 @@ import orderRoutes from './routes/consumer/orderRoutes.js'
 import replacementRoutes from './routes/consumer/replacementRoutes.js'
 import storeDeliveryPersonRoutes from './routes/storeAdmin/deliveryPersonRoutes.js'
 import deliveryPersonRoutes from './routes/delivery/deliveryPersonRoutes.js'
+import storeOrderRoutes from './routes/storeAdmin/orderRoutes.js'
+import storeSlotRoutes from './routes/storeAdmin/storeSlotRoutes.js'
+import MasterAdminSlotTemplateRoutes from './routes/masterAdmin/slotTemplateRoutes.js'
 
 const app = express();
 dotenv.config();
@@ -58,12 +61,14 @@ const startServer = async () => {
     app.use('/api/masteradmin' , masterAdminAuthRoutes)
     app.use('/api/masterAdminProducts', MasterAdminRoutes);
     app.use('/api/masterAdminPdtCat', MasterAdminptdCatRoutes);
-
+    app.use('/api/masterAdminSlotTemplate', MasterAdminSlotTemplateRoutes);
     //for storeAdmin
     app.use('/api/category' , productCategoryRoutes)
     app.use('/api/products' , productRoutes)
     app.use('/api/subProducts' , subProductRoutes)
     app.use('/api/storeDeliveryPerson', storeDeliveryPersonRoutes)
+    app.use('/api/order', storeOrderRoutes)
+    app.use('/api/slot', storeSlotRoutes)
 
     // for Fulupo Store
     app.use('/api/auth' , storeAuthRoutes)
