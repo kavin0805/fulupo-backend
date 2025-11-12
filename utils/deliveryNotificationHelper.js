@@ -1,7 +1,7 @@
 import DeliveryNotification from "../modules/delivery/deliveryNotification.js";
 
 // Simple helper to create a notification
-export const pushDeliveryNotification = async ({
+const pushDeliveryNotification = async ({
   deliveryPersonId,
   storeId,
   orderId,
@@ -33,3 +33,5 @@ export const pushDeliveryNotification = async ({
     console.error("Notification Error:", err.message);
   }
 };
+
+export default pushDeliveryNotification;
