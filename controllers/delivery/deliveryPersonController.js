@@ -2,6 +2,9 @@ import DeliveryPerson from "../../modules/storeAdmin/deliveryPerson.js";
 import Order from "../../modules/consumer/Order.js";
 import dayjs from "dayjs";
 import pushDeliveryNotification from "../../utils/deliveryNotificationHelper.js"
+import isBetween from "dayjs/plugin/isBetween.js";
+dayjs.extend(isBetween); // enable the plugin
+
 
 // Get my profile
 export const getMyProfile = async (req, res) => {
@@ -174,27 +177,30 @@ export const getTodayOverview = async (req, res) => {
     const dpId = req.deliveryPerson._id;
     const today = dayjs().format("YYYY-MM-DD");
 
+    // Fetch orders for this delivery person
     const todayOrders = await Order.find({
       deliveryPersonId: dpId,
-      slotDate: today,
+      orderStatus: { $in: ["OUT_FOR_DELIVERY", "DELIVERED"] },
     });
 
-    const toBeDelivered = todayOrders.filter(
-      (o) => o.orderStatus === "OUT_FOR_DELIVERY"
+    // Use updatedAt for actual delivery time check
+    const toBeDelivered = todayOrders.filter(o => 
+      dayjs(o.updatedAt).isSame(today, "day") && o.orderStatus === "OUT_FOR_DELIVERY"
     );
-    const delivered = todayOrders.filter((o) => o.orderStatus === "DELIVERED");
+
+    const delivered = todayOrders.filter(o => 
+      dayjs(o.updatedAt).isSame(today, "day") && o.orderStatus === "DELIVERED"
+    );
 
     res.json({
       date: today,
-      totalOrders: todayOrders.length,
+      totalOrders: toBeDelivered.length + delivered.length,
       toBeDelivered: toBeDelivered.length,
       delivered: delivered.length,
       deliveredOrders: delivered,
     });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Error fetching today's overview", error: err.message });
+    res.status(500).json({ message: "Error fetching today's overview", error: err.message });
   }
 };
 
@@ -225,25 +231,27 @@ export const getDeliveryMetrics = async (req, res) => {
   try {
     const dpId = req.deliveryPerson._id;
     const dp = await DeliveryPerson.findById(dpId);
-    if (!dp)
-      return res.status(404).json({ message: "Delivery person not found" });
+    if (!dp) return res.status(404).json({ message: "Delivery person not found" });
 
+    // All delivered orders
     const allDeliveredOrders = await Order.find({
       deliveryPersonId: dpId,
       orderStatus: "DELIVERED",
     });
 
-    const today = dayjs().format("YYYY-MM-DD");
-    const startOfWeek = dayjs().startOf("week").format("YYYY-MM-DD");
-    const startOfMonth = dayjs().startOf("month").format("YYYY-MM-DD");
-
-    const calcCount = (filterFn) => allDeliveredOrders.filter(filterFn).length;
-
-    const todayDeliveries = calcCount((o) => o.slotDate === today);
-    const weekDeliveries = calcCount((o) => o.slotDate >= startOfWeek);
-    const monthDeliveries = calcCount((o) => o.slotDate >= startOfMonth);
+    const today = dayjs();
+    const startOfWeek = today.startOf("week");
+    const endOfWeek = today.endOf("week");
+    const startOfMonth = today.startOf("month");
+    const endOfMonth = today.endOf("month");
 
     const perDeliveryEarning = dp.earningsPerDelivery || 0;
+
+    // Filter using updatedAt (actual delivery date)
+    const todayDeliveries = allDeliveredOrders.filter(o => dayjs(o.updatedAt).isSame(today, "day")).length;
+    const weekDeliveries = allDeliveredOrders.filter(o => dayjs(o.updatedAt).isBetween(startOfWeek, endOfWeek, "day", "[]")).length;
+    const monthDeliveries = allDeliveredOrders.filter(o => dayjs(o.updatedAt).isBetween(startOfMonth, endOfMonth, "day", "[]")).length;
+    const totalDeliveries = allDeliveredOrders.length;
 
     res.json({
       today: {
@@ -259,14 +267,12 @@ export const getDeliveryMetrics = async (req, res) => {
         earnings: monthDeliveries * perDeliveryEarning,
       },
       total: {
-        deliveries: allDeliveredOrders.length,
-        earnings: allDeliveredOrders.length * perDeliveryEarning,
+        deliveries: totalDeliveries,
+        earnings: totalDeliveries * perDeliveryEarning,
       },
     });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Error calculating metrics", error: err.message });
+    res.status(500).json({ message: "Error calculating metrics", error: err.message });
   }
 };
 
