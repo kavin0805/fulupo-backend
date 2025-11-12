@@ -42,9 +42,22 @@ const orderSchema = new mongoose.Schema(
     razorpayPaymentId: { type: String },
     razorpaySignature: { type: String },
 
+    orderNumber: {
+      type: String,
+      unique: true,
+      index: true,
+    },
+
     orderStatus: {
       type: String,
-      enum: ["PENDING_STORE_APPROVAL","WAITING_FOR_DP_ASSIGNMENT","ASSIGNED_TO_DP","OUT_FOR_DELIVERY","DELIVERED","REJECTED_BY_DP"],
+      enum: [
+        "PENDING_STORE_APPROVAL",
+        "WAITING_FOR_DP_ASSIGNMENT",
+        "ASSIGNED_TO_DP",
+        "OUT_FOR_DELIVERY",
+        "DELIVERED",
+        "REJECTED_BY_DP",
+      ],
       default: "PENDING_STORE_APPROVAL",
     },
     slotId: { type: mongoose.Schema.Types.ObjectId, ref: "StoreDeliverySlot" },
@@ -61,5 +74,19 @@ const orderSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+orderSchema.pre("save", async function (next) {
+  if (this.isNew && !this.orderNumber) {
+    const now = new Date();
+    const year = now.getFullYear().toString().slice(-2);
+    const month = (now.getMonth() + 1).toString().padStart(2, "0");
+
+    const randomDigits = Math.floor(
+      100000000000 + Math.random() * 900000000000
+    ); 
+    this.orderNumber = `ORD${year}${month}${randomDigits}`;
+  }
+  next();
+});
 
 export default mongoose.model("Order", orderSchema);

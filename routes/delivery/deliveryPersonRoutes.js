@@ -8,7 +8,10 @@ import {
   getMyProfile,
   updateMyProfile,
   completeDelivery,
-  respondToOrder
+  respondToOrder,
+  getTodayOverview,
+  getOrderHistory,
+  getDeliveryMetrics
 } from "../../controllers/delivery/deliveryPersonController.js";
 import { upload } from "../../middleware/upload.js";
 import { verifyDeliveryPerson } from "../../middleware/deliveryPersonAuth.js";
@@ -40,5 +43,9 @@ router.put(
 );
 router.post("/respond", verifyDeliveryPerson, respondToOrder);
 router.post("/complete-delivery", verifyDeliveryPerson, completeDelivery);
+router.get("/overview/today", verifyDeliveryPerson, getTodayOverview);
+router.get("/history", verifyDeliveryPerson, getOrderHistory);
+router.get("/metrics", verifyDeliveryPerson, getDeliveryMetrics);
+
 
 export default router;

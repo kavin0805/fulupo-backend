@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './lib/db.js';
 import createInitialAdmin from './intiAdmin.js';
+import { Server } from 'socket.io';
+import http from "http";
 import storeRoutes from './routes/onBoarding/storeRoutes.js'
 import authRoutes from './routes/onBoarding/authRoutes.js'
 // import masterAuthRoutes from './routes/storeAdmin/masterAuthRoutes.js'
@@ -42,6 +44,37 @@ dotenv.config();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
+
+
+// 🔹 Create HTTP server
+const server = http.createServer(app);
+
+// 🔹 Initialize Socket.IO
+const io = new Server(server, {
+  cors: {
+    origin: "*", // (you can restrict this to your front-end domain later)
+    methods: ["GET", "POST"],
+  },
+});
+
+// Store globally
+global.io = io;
+
+// Socket.IO connection logic
+io.on("connection", (socket) => {
+  console.log(`A user connected: ${socket.id}`);
+
+  // When a delivery person connects, they’ll join their personal room
+  socket.on("registerDeliveryPerson", (deliveryPersonId) => {
+    socket.join(`dp_${deliveryPersonId}`);
+    console.log(`Delivery person ${deliveryPersonId} joined room dp_${deliveryPersonId}`);
+  });
+
+  // handle disconnection
+  socket.on("disconnect", () => {
+    console.log(`User disconnected: ${socket.id}`);
+  });
+});
 
 // Ensure the functions that are async are properly awaited
 const startServer = async () => {
@@ -95,9 +128,6 @@ const startServer = async () => {
 
     // for delivery person
     app.use('/api/deliveryPerson', deliveryPersonRoutes)
-
-
-
 
     const PORT = process.env.PORT || 5000;
     app.listen(PORT, () => {
