@@ -84,74 +84,94 @@ export const respondToOrder = async (req, res) => {
     const { orderId, action } = req.body;
 
     const order = await Order.findById(orderId);
-    if (!order || String(order.deliveryPersonId) !== String(dpId))
+    if (!order || String(order.deliveryPersonId) !== String(dpId)) {
       return res
         .status(404)
         .json({ message: "Order not assigned to this delivery person" });
+    }
+
+    // Prevent duplicate responses
+    if (["DELIVERED", "REJECTED_BY_DP", "OUT_FOR_DELIVERY"].includes(order.orderStatus)) {
+      return res.status(400).json({
+        message: `Order already ${order.orderStatus.replace(/_/g, " ").toLowerCase()}`,
+      });
+    }
 
     const today = dayjs().format("YYYY-MM-DD");
     const dp = await DeliveryPerson.findById(dpId);
 
-    // reset daily rejection counter
+    // Reset daily rejection counter
     if (dp.rejectionCountDate !== today) {
       dp.rejectionCountDate = today;
       dp.rejectionCount = 0;
     }
 
+    // Reject flow
     if (action === "REJECT") {
       if (dp.rejectionCount >= dp.rejectionLimitPerDay) {
         return res
           .status(403)
           .json({ message: "Daily rejection limit reached" });
       }
+
       dp.rejectionCount += 1;
       await dp.save();
       order.orderStatus = "REJECTED_BY_DP";
       await order.save();
 
-
-      // order rejected notification
+      // Push notification (DB + Socket)
       await pushDeliveryNotification({
         deliveryPersonId: dpId,
         storeId: order.storeId,
         orderId: order._id,
         type: "StatusRejected",
         title: "Delivery Rejected",
-        message: `Order #${order.orderNumber?.slice(-4) || order._id.toString().slice(-4)} rejected. You've used ${dp.rejectionCount}/${dp.rejectionLimitPerDay} rejections today.`,
+        message: `Order #${
+          order.orderNumber?.slice(-4) || order._id.toString().slice(-4)
+        } rejected. You've used ${dp.rejectionCount}/${dp.rejectionLimitPerDay} rejections today.`,
       });
 
       return res.json({ message: "Order rejected successfully" });
     }
 
-    // change order status when DP Accepts the delivery
+    // Accept flow
     order.orderStatus = "OUT_FOR_DELIVERY";
     await order.save();
 
-    res.json({ message: "Order accepted", order });
+    res.json({ message: "Order accepted successfully", order });
   } catch (err) {
+    console.error("DP response error:", err);
     res.status(500).json({ message: "DP response error", error: err.message });
   }
 };
 
-// delivery completion
+
+
+// Delivery completion controller
 export const completeDelivery = async (req, res) => {
   try {
     const dpId = req.deliveryPerson._id;
     const { orderId, pin } = req.body;
 
     const order = await Order.findById(orderId);
-    if (!order || String(order.deliveryPersonId) !== String(dpId))
+    if (!order || String(order.deliveryPersonId) !== String(dpId)) {
       return res
         .status(404)
         .json({ message: "Order not assigned to this delivery person" });
+    }
+
+    // Prevent re-delivery update
+    if (order.orderStatus === "DELIVERED") {
+      return res.status(400).json({ message: "Order already delivered" });
+    }
 
     if (order.deliveryPin !== pin)
-      return res.status(400).json({ message: "Invalid PIN" });
+      return res.status(400).json({ message: "Invalid delivery PIN" });
 
     order.orderStatus = "DELIVERED";
     await order.save();
 
-    // Delivery completed notification
+    // Push notification (DB + Socket)
     await pushDeliveryNotification({
       deliveryPersonId: dpId,
       storeId: order.storeId,
@@ -163,13 +183,16 @@ export const completeDelivery = async (req, res) => {
       } successfully delivered.`,
     });
 
-    res.json({ message: "Delivery completed" });
+    res.json({ message: "Delivery completed successfully" });
   } catch (err) {
+    console.error("Delivery complete error:", err);
     res
       .status(500)
       .json({ message: "Delivery complete error", error: err.message });
   }
 };
+
+
 
 // Get today's overview (to be delivered + delivered)
 export const getTodayOverview = async (req, res) => {
