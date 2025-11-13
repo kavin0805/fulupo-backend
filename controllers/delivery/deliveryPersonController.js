@@ -198,6 +198,9 @@ export const getTodayOverview = async (req, res) => {
       toBeDelivered: toBeDelivered.length,
       delivered: delivered.length,
       deliveredOrders: delivered,
+      toBeDeliveredOrders: toBeDelivered, 
+      deliveredOrders: delivered,        
+      allTodayOrders: [...toBeDelivered, ...delivered]
     });
   } catch (err) {
     res.status(500).json({ message: "Error fetching today's overview", error: err.message });
