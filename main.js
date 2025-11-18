@@ -37,6 +37,7 @@ import deliveryPersonRoutes from "./routes/delivery/deliveryPersonRoutes.js";
 import storeOrderRoutes from "./routes/storeAdmin/orderRoutes.js";
 import storeSlotRoutes from "./routes/storeAdmin/storeSlotRoutes.js";
 import MasterAdminSlotTemplateRoutes from "./routes/masterAdmin/slotTemplateRoutes.js";
+import EmployeeRoutes from "./routes/storeAdmin/employeeRoutes.js"
 
 const app = express();
 dotenv.config();
@@ -110,6 +111,7 @@ const startServer = async () => {
     app.use("/api/storeDeliveryPerson", storeDeliveryPersonRoutes);
     app.use("/api/order", storeOrderRoutes);
     app.use("/api/slot", storeSlotRoutes);
+    app.use("/api/employee", EmployeeRoutes);
 
     // for Fulupo Store
     app.use("/api/auth", storeAuthRoutes);
