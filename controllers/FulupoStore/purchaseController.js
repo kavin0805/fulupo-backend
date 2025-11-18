@@ -714,3 +714,65 @@ export const getPurchasesByVendor = async (req, res) => {
       });
   }
 };
+
+export const getFilteredPurchases = async (req, res) => {
+  try {
+    const { from, to, storeId, vendorName, purchaseBillNo } = req.body;
+
+    // 🧠 Build dynamic query
+    const query = {};
+
+    if (storeId) query.storeId = storeId;
+    if (vendorName) query.vendorName = { $regex: vendorName, $options: "i" };
+    if (purchaseBillNo)
+      query.purchaseBillNo = { $regex: purchaseBillNo, $options: "i" };
+
+    if (from && to) {
+      query.purchaseDate = {
+        $gte: new Date(from),
+        $lte: new Date(to),
+      };
+    }
+
+    // 📦 Fetch with population
+    const purchases = await Purchase.find(query)
+      .populate("product.product_id", "name productImage productCode")
+      .sort({ purchaseDate: -1 });
+
+    if (!purchases.length) {
+      return res.status(404).json({ message: "No purchases found" });
+    }
+
+    // 🧾 Add return qty & amount totals
+    const enriched = purchases.map((p) => {
+      let totalReturnQty = 0;
+      let totalReturnAmount = 0;
+
+      const enrichedProducts = p.product.map((prod) => {
+        const return_qty = prod.return_qty || 0;
+        const return_amount = prod.return_amount || 0;
+        totalReturnQty += return_qty;
+        totalReturnAmount += return_amount;
+        return { ...prod._doc, return_qty, return_amount };
+      });
+
+      return {
+        ...p._doc,
+        product: enrichedProducts,
+        totalReturnQty,
+        totalReturnAmount,
+      };
+    });
+
+    res.json({
+      count: enriched.length,
+      filters: { storeId, vendorName, purchaseBillNo, from, to },
+      data: enriched,
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: "Error fetching filtered purchases",
+      error: err.message,
+    });
+  }
+};

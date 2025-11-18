@@ -62,6 +62,7 @@ import DeliveryPerson from "../../modules/storeAdmin/deliveryPerson.js";
 //   }
 // };
 
+
 // function to generate delivery pin
 function generatePin() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -262,6 +263,7 @@ export const PlaceOrderWithSlot = async (req, res) => {
   }
 };
 
+
 // ✅ Verify Razorpay Payment
 export const verifyPayment = async (req, res) => {
   try {
@@ -297,6 +299,7 @@ export const verifyPayment = async (req, res) => {
       .json({ message: "Error verifying payment", error: err.message });
   }
 };
+
 
 // 📦 Get All Orders for a Consumer
 export const getMyOrders = async (req, res) => {
@@ -337,6 +340,7 @@ export const getOrderById = async (req, res) => {
       .json({ message: "Error fetching order", error: err.message });
   }
 };
+
 
 export const updatePaymentStatus = async (req, res) => {
   try {

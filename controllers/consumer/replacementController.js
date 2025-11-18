@@ -20,7 +20,7 @@ export const requestReplacement = async (req, res) => {
       orderId,
       productId,
       customerId,
-      storeId: order.storeId,
+      storeId: order.storeId, 
       reason,
       images: imagePaths,
       quantity: quantity || 1,
