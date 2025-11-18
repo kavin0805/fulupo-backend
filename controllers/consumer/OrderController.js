@@ -59,6 +59,7 @@ import Product from '../../modules/storeAdmin/Product.js'
 //   }
 // };
 
+
 export const createOrder = async (req, res) => {
   try {
     const consumerId = req.consumer._id;
@@ -143,6 +144,7 @@ export const createOrder = async (req, res) => {
   }
 };
 
+
 // ✅ Verify Razorpay Payment
 export const verifyPayment = async (req, res) => {
   try {
@@ -173,6 +175,7 @@ export const verifyPayment = async (req, res) => {
     res.status(500).json({ message: "Error verifying payment", error: err.message });
   }
 };
+
 
 // 📦 Get All Orders for a Consumer
 export const getMyOrders = async (req, res) => {
@@ -210,7 +213,6 @@ export const getOrderById = async (req, res) => {
     res.status(500).json({ message: "Error fetching order", error: err.message });
   }
 };
-
 
 
 export const updatePaymentStatus = async (req, res) => {

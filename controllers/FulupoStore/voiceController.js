@@ -22,6 +22,9 @@ class GroceryItem {
   }
 }
 
+console.log("process.env.GROQ_API_KEY " , process.env.GROQ_API_KEY );
+
+
 class GroceryProcessor {
   constructor(apiKey = null) {
     this.apiKey = apiKey || process.env.GROQ_API_KEY ;
