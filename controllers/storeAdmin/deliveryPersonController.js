@@ -116,3 +116,40 @@ export const deleteDeliveryPersonByStoreAndId = async (req, res) => {
       .json({ message: "Error deleting delivery person", error: err.message });
   }
 };
+
+// Search Delivery Person by Store Admin
+export const searchDeliveryPersonsByStore = async (req, res) => {
+  try {
+    const { storeId, query } = req.query;
+
+    if (!storeId) {
+      return res.status(400).json({ message: "storeId is required" });
+    }
+
+    if (!query || query.trim() === "") {
+      return res.status(400).json({ message: "Search query is required" });
+    }
+
+    const regex = new RegExp(query, "i"); // case-insensitive search
+
+    const persons = await DeliveryPerson.find({
+      storeId,
+      $or: [
+        { name: regex },
+        { mobile: regex },
+        { email: regex },
+      ],
+    }).sort({ createdAt: -1 });
+
+    res.json({
+      count: persons.length,
+      data: persons,
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      message: "Error searching delivery persons",
+      error: err.message,
+    });
+  }
+};
