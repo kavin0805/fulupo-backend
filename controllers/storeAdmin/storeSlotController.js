@@ -51,53 +51,68 @@ export const createSlot = async (req, res) => {
   }
 };
 
-// Bulk create slots for arbitrary times (e.g., 07:00-08:00, 09:00-10:00, etc.)
+// Bulk create slots
 export const bulkCreateSlots = async (req, res) => {
   try {
-    const { storeId, date, slots, overwrite = false } = req.body; // slots: [{start,end,capacity}]
+    const { storeId, date, slots, overwrite = false } = req.body;
+
     if (!storeId || !date || !Array.isArray(slots) || !slots.length) {
-      return res.status(400).json({ message: "storeId, date and slots[] are required" });
+      return res.status(400).json({
+        message: "storeId, date and slots[] are required"
+      });
     }
 
-    // normalize inputs
+    // Auto calculate capacity based on number of delivery partners
+    const autoCapacity = await computeSlotCapacity(storeId);
+
+    // Normalize inputs, ignore capacity if user sends it
     const incoming = slots.map(s => ({
       start: String(s.start).trim(),
-      end: String(s.end).trim(),
-      capacity: Number(s.capacity)
+      end: String(s.end).trim()
     }));
-
+    
     // fetch existing for the given day
     const existing = await storeDeliverySlot
-      .find({ storeId, date, start: { $in: incoming.map(s => s.start) } })
+      .find({
+        storeId,
+        date,
+        start: { $in: incoming.map(s => s.start) }
+      })
       .select("_id start end capacity isActive")
       .lean();
 
     const existingByStart = new Map(existing.map(e => [e.start, e]));
 
-    // build insert + optional updates
     const toInsert = [];
     const toUpdateOps = [];
     const duplicates = [];
 
     for (const s of incoming) {
       const found = existingByStart.get(s.start);
+
       if (!found) {
+        // Create new slot with auto capacity
         toInsert.push({
           storeId,
           date,
           start: s.start,
           end: s.end,
-          capacity: s.capacity,
+          capacity: autoCapacity,
           bookedCount: 0,
           isActive: true
         });
       } else {
         duplicates.push(s.start);
+
         if (overwrite) {
           const updateDoc = {};
+
+          // allow time update
           if (s.end && s.end !== found.end) updateDoc.end = s.end;
-          if (Number.isFinite(s.capacity) && s.capacity !== found.capacity) updateDoc.capacity = s.capacity;
-          // Keep isActive true for published/managed slots; adjust if you need to toggle
+
+          // always override capacity with auto capacity
+          updateDoc.capacity = autoCapacity;
+
           if (Object.keys(updateDoc).length) {
             toUpdateOps.push({
               updateOne: {
@@ -123,7 +138,7 @@ export const bulkCreateSlots = async (req, res) => {
 
     if (toUpdateOps.length) {
       const updRes = await storeDeliverySlot.bulkWrite(toUpdateOps, { ordered: false });
-      results.updatedCount = (updRes.modifiedCount || 0);
+      results.updatedCount = updRes.modifiedCount || 0;
     }
 
     const data = await storeDeliverySlot.find({ storeId, date }).sort({ start: 1 });

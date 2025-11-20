@@ -77,13 +77,20 @@ export const listAvailableSlots = async (req, res) => {
     let consumerStoreId = req.consumer?.storeId;
     if (!consumerStoreId) {
       const me = await Consumer.findById(req.consumer._id).select("storeId");
-      if (!me?.storeId) return res.status(403).json({ message: "Consumer is not linked to any store" });
+      if (!me?.storeId)
+        return res
+          .status(403)
+          .json({ message: "Consumer is not linked to any store" });
       consumerStoreId = me.storeId.toString();
     }
 
     // If a storeId was sent, ensure it matches the consumer's store
     if (storeIdFromQuery && storeIdFromQuery !== String(consumerStoreId)) {
-      return res.status(403).json({ message: "Forbidden: storeId does not match consumer's store" });
+      return res
+        .status(403)
+        .json({
+          message: "Forbidden: storeId does not match consumer's store",
+        });
     }
 
     // use the consumer's storeId for querying
@@ -99,7 +106,6 @@ export const listAvailableSlots = async (req, res) => {
     res.status(500).json({ message: "List error", error: e.message });
   }
 };
-
 
 // place the order on the selected slot
 export const PlaceOrderWithSlot = async (req, res) => {
@@ -135,6 +141,9 @@ export const PlaceOrderWithSlot = async (req, res) => {
       const product = await Product.findById(item.productId);
       if (!product) throw new Error(`Product not found: ${item.productId}`);
 
+      item.name = product.name;
+      item.image = product.dimenstionImages?.[0] || null;
+      
       // Find store inventory
       const inventory = await Inventory.findOne({
         storeId,
@@ -298,7 +307,7 @@ export const verifyPayment = async (req, res) => {
   }
 };
 
-// 📦 Get All Orders for a Consumer
+// Get All Orders for a Consumer
 export const getMyOrders = async (req, res) => {
   try {
     const consumerId = req.consumer._id;
@@ -315,7 +324,7 @@ export const getMyOrders = async (req, res) => {
   }
 };
 
-// 📄 Get Single Order by ID
+// Get Single Order by ID
 export const getOrderById = async (req, res) => {
   try {
     const { orderId } = req.params;
@@ -338,6 +347,7 @@ export const getOrderById = async (req, res) => {
   }
 };
 
+// update payment status
 export const updatePaymentStatus = async (req, res) => {
   try {
     const { orderId, status } = req.body;
@@ -365,10 +375,12 @@ export const rateDelivery = async (req, res) => {
     if (!rating || rating < 1 || rating > 5)
       return res.status(400).json({ message: "Rating must be between 1 and 5" });
 
+    // ensure order is delivered and deliveredAt exists
     const order = await Order.findOne({
       _id: orderId,
       consumerId,
-      orderStatus: "DELIVERED"
+      orderStatus: "DELIVERED",
+      deliveredAt: { $exists: true }
     });
 
     if (!order)
@@ -377,23 +389,31 @@ export const rateDelivery = async (req, res) => {
     if (!order.deliveryPersonId)
       return res.status(400).json({ message: "No delivery person assigned for this order" });
 
+    // save rating
     order.deliveryRating = rating;
     await order.save();
 
+    // update DP average rating
     const dp = await DeliveryPerson.findById(order.deliveryPersonId);
     if (!dp) return res.status(404).json({ message: "Delivery person not found" });
 
-    // Recalculate average rating
     const ratedOrders = await Order.find({
       deliveryPersonId: dp._id,
       deliveryRating: { $exists: true, $ne: null }
     });
 
-    const avg = ratedOrders.reduce((sum, o) => sum + o.deliveryRating, 0) / ratedOrders.length;
+    const avg =
+      ratedOrders.reduce((sum, o) => sum + o.deliveryRating, 0) /
+      ratedOrders.length;
+
     dp.averageRating = Number(avg.toFixed(2));
     await dp.save();
 
-    res.json({ message: "Thank you for rating!", rating, newAverage: dp.averageRating });
+    res.json({
+      message: "Thank you for rating!",
+      rating,
+      newAverage: dp.averageRating
+    });
   } catch (err) {
     res.status(500).json({ message: "Rating error", error: err.message });
   }

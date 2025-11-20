@@ -120,8 +120,6 @@ export const reassignDeliveryPerson = async (req, res) => {
   }
 };
 
-
-
 // Store admin order list with status filter + pagination
 export const getStoreOrders = async (req, res) => {
   try {
@@ -131,17 +129,19 @@ export const getStoreOrders = async (req, res) => {
     const query = { storeId };
     if (status) query.orderStatus = status;
 
-    const skip = (Number(page) - 1) * Number(limit);
+    const skip = (page - 1) * limit;
 
     const [orders, total] = await Promise.all([
       Order.find(query)
         .populate("consumerId", "name mobile")
         .populate("addressId")
         .populate("deliveryPersonId", "name mobile")
+        .populate("items.productId", "name")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit)),
-      Order.countDocuments(query),
+
+      Order.countDocuments(query)
     ]);
 
     res.json({
