@@ -65,6 +65,8 @@ const orderSchema = new mongoose.Schema(
     },
     deliveryRating: { type: Number, min: 1, max: 5 },
     deliveredAt: Date,
+    rejectionReason: { type: String },
+    rejectedAt: { type: Date },
   },
   { timestamps: true }
 );

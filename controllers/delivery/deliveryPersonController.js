@@ -7,7 +7,6 @@ dayjs.extend(isBetween); // enable the plugin
 import isoWeek from "dayjs/plugin/isoWeek.js";
 dayjs.extend(isoWeek);
 
-
 // Get my profile
 export const getMyProfile = async (req, res) => {
   try {
@@ -83,7 +82,7 @@ export const updateMyProfile = async (req, res) => {
 export const respondToOrder = async (req, res) => {
   try {
     const dpId = req.deliveryPerson._id;
-    const { orderId, action } = req.body;
+    const { orderId, action, rejectionReason } = req.body; // <-- PATCHED
 
     const order = await Order.findById(orderId);
     if (!order || String(order.deliveryPersonId) !== String(dpId)) {
@@ -92,7 +91,7 @@ export const respondToOrder = async (req, res) => {
         .json({ message: "Order not assigned to this delivery person" });
     }
 
-    // Prevent duplicate responses
+    // // Prevent duplicate responses
     if (
       ["DELIVERED", "REJECTED_BY_DP", "OUT_FOR_DELIVERY"].includes(
         order.orderStatus
@@ -108,13 +107,13 @@ export const respondToOrder = async (req, res) => {
     const today = dayjs().format("YYYY-MM-DD");
     const dp = await DeliveryPerson.findById(dpId);
 
-    // Reset daily rejection counter
+    // // Reset daily rejection counter
     if (dp.rejectionCountDate !== today) {
       dp.rejectionCountDate = today;
       dp.rejectionCount = 0;
     }
 
-    // Reject flow
+    // REJECT flow
     if (action === "REJECT") {
       if (dp.rejectionCount >= dp.rejectionLimitPerDay) {
         return res
@@ -125,6 +124,8 @@ export const respondToOrder = async (req, res) => {
       dp.rejectionCount += 1;
       await dp.save();
       order.orderStatus = "REJECTED_BY_DP";
+      order.rejectionReason = rejectionReason || null;
+      order.rejectedAt = new Date();
       await order.save();
 
       // Push notification (DB + Socket)
@@ -144,7 +145,7 @@ export const respondToOrder = async (req, res) => {
       return res.json({ message: "Order rejected successfully" });
     }
 
-    // Accept flow
+    // ACCEPT flow
     order.orderStatus = "OUT_FOR_DELIVERY";
     await order.save();
 
@@ -177,6 +178,14 @@ export const getOrderDetails = async (req, res) => {
     if (!order) {
       return res.status(404).json({
         message: "Order not found or not assigned to you",
+      });
+    }
+
+    // BLOCK if already delivered
+    if (order.orderStatus === "DELIVERED") {
+      return res.status(403).json({
+        message:
+          "This order has already been delivered. Details are no longer available.",
       });
     }
 
@@ -291,6 +300,19 @@ export const getTodayOverview = async (req, res) => {
       .populate("addressId", "addressLine addressName addressType")
       .populate("items.productId", "name");
 
+    // fetch rejected orders for today
+    const rejectedOrders = await Order.find({
+      deliveryPersonId: dpId,
+      orderStatus: "REJECTED_BY_DP",
+      rejectedAt: { $exists: true, $ne: null },
+    })
+      .populate("consumerId", "name mobile")
+      .populate("addressId", "addressLine addressName addressType");
+
+    const todayRejected = rejectedOrders.filter((o) =>
+      dayjs(o.rejectedAt).isSame(today, "day")
+    );
+
     const toBeDelivered = orders.filter(
       (o) => o.orderStatus === "OUT_FOR_DELIVERY" && o.slotDate === today
     );
@@ -305,20 +327,14 @@ export const getTodayOverview = async (req, res) => {
     const clean = (o) => ({
       orderId: o._id,
       orderNumber: o.orderNumber,
-
       slot: {
         date: o.slotDate,
         start: o.slotStart,
         end: o.slotEnd,
       },
-
       consumer: o.consumerId
-        ? {
-            name: o.consumerId.name,
-            mobile: o.consumerId.mobile,
-          }
+        ? { name: o.consumerId.name, mobile: o.consumerId.mobile }
         : null,
-
       address: o.addressId
         ? {
             line: o.addressId.addressLine,
@@ -326,7 +342,6 @@ export const getTodayOverview = async (req, res) => {
             type: o.addressId.addressType,
           }
         : null,
-
       items: o.items.map((i) => ({
         productId: i.productId?._id || i.productId,
         name: i.productId?.name || i.name,
@@ -334,11 +349,21 @@ export const getTodayOverview = async (req, res) => {
         price: i.price,
         total: i.total,
       })),
-
       totalAmount: o.totalAmount,
       paymentMode: o.paymentMode,
       orderStatus: o.orderStatus,
       deliveredAt: o.deliveredAt || null,
+    });
+
+    // to get only rejection details
+    const cleanRejected = (o) => ({
+      orderId: o._id,
+      orderNumber: o.orderNumber,
+      rejectedAt: o.rejectedAt,
+      rejectionReason: o.rejectionReason || null,
+      consumer: o.consumerId
+        ? { name: o.consumerId.name, mobile: o.consumerId.mobile }
+        : null,
     });
 
     res.json({
@@ -346,10 +371,10 @@ export const getTodayOverview = async (req, res) => {
       totalOrders: toBeDelivered.length + delivered.length,
       toBeDelivered: toBeDelivered.length,
       delivered: delivered.length,
-
+      rejections: todayRejected.length,
       toBeDeliveredOrders: toBeDelivered.map(clean),
       deliveredOrders: delivered.map(clean),
-
+      rejectedOrders: todayRejected.map(cleanRejected),
       allTodayOrders: [...toBeDelivered, ...delivered].map(clean),
     });
   } catch (err) {
@@ -364,20 +389,50 @@ export const getTodayOverview = async (req, res) => {
 export const getOrderHistory = async (req, res) => {
   try {
     const dpId = req.deliveryPerson._id;
-    const { startDate, endDate, status } = req.query;
+    const {
+      startDate,
+      endDate,
+      date,
+      status,
+      page = 1,
+      limit = 20,
+    } = req.query;
 
     const filter = { deliveryPersonId: dpId };
 
-    if (startDate && endDate) {
+    // DATE FILTER
+    if (date) {
+      // Exact match
+      filter.slotDate = date;
+    } else if (startDate && endDate) {
+      // Between two dates
       filter.slotDate = { $gte: startDate, $lte: endDate };
+    } else if (startDate) {
+      // From start date to ANY future
+      filter.slotDate = { $gte: startDate };
+    } else if (endDate) {
+      // Up to the end date
+      filter.slotDate = { $lte: endDate };
     }
-    if (status) filter.orderStatus = status;
+
+    if (status) {
+      filter.orderStatus = status;
+    } else {
+      filter.orderStatus = { $in: ["DELIVERED", "REJECTED_BY_DP"] };
+    }
+
+    const skip = (page - 1) * limit;
 
     const orders = await Order.find(filter)
       .populate("consumerId", "name mobile")
       .populate("addressId", "addressLine addressName addressType")
       .populate("items.productId", "name")
-      .sort({ slotDate: -1 });
+      .sort({ deliveredAt: -1, rejectedAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    // count for pagination
+    const totalOrders = await Order.countDocuments(filter);
 
     // cleaner data structure
     const cleanData = orders.map((order) => ({
@@ -416,12 +471,29 @@ export const getOrderHistory = async (req, res) => {
       totalAmount: order.totalAmount,
       paymentMode: order.paymentMode,
       orderStatus: order.orderStatus,
-
       deliveredAt: order.deliveredAt || null,
+      rejectedAt: order.rejectedAt || null,
+      rejectionReason: order.rejectionReason || null,
     }));
 
+    // order count based on filter
+    const deliveriesInRange = await Order.countDocuments({
+      ...filter,
+      orderStatus: "DELIVERED",
+    });
+
+    const rejectionsInRange = await Order.countDocuments({
+      ...filter,
+      orderStatus: "REJECTED_BY_DP",
+    });
+    
     res.json({
-      count: cleanData.length,
+      page: Number(page),
+      limit: Number(limit),
+      totalOrders,
+      totalPages: Math.ceil(totalOrders / limit),
+      deliveriesInRange,
+      rejectionsInRange, 
       data: cleanData,
     });
   } catch (err) {
@@ -446,20 +518,24 @@ export const getDeliveryMetrics = async (req, res) => {
     const allDeliveredOrders = await Order.find({
       deliveryPersonId: dpId,
       orderStatus: "DELIVERED",
-      deliveredAt: { $exists: true, $ne: null }
+      deliveredAt: { $exists: true, $ne: null },
+    }).lean();
+
+    // FETCH only rejected orders with a valid rejectedAt timestamp
+    const rejectedOrders = await Order.find({
+      deliveryPersonId: dpId,
+      orderStatus: "REJECTED_BY_DP",
+      rejectedAt: { $exists: true, $ne: null },
     }).lean();
 
     const today = dayjs();
-
     const startOfWeek = today.startOf("isoWeek");
     const endOfWeek = today.endOf("isoWeek");
-
     const startOfMonth = today.startOf("month");
     const endOfMonth = today.endOf("month");
-
     const perDeliveryEarning = dp.earningsPerDelivery || 0;
 
-    // Safe helper
+    // helper for day js functions for delivered metrics
     const isDeliveredToday = (o) =>
       o.deliveredAt && dayjs(o.deliveredAt).isSame(today, "day");
 
@@ -471,35 +547,109 @@ export const getDeliveryMetrics = async (req, res) => {
       o.deliveredAt &&
       dayjs(o.deliveredAt).isBetween(startOfMonth, endOfMonth, "day", "[]");
 
+    // helper for day js functions for rejected metrics
+    const isRejectedToday = (o) =>
+      o.rejectedAt && dayjs(o.rejectedAt).isSame(today, "day");
+
+    const isRejectedThisWeek = (o) =>
+      o.rejectedAt &&
+      dayjs(o.rejectedAt).isBetween(startOfWeek, endOfWeek, "day", "[]");
+
+    const isRejectedThisMonth = (o) =>
+      o.rejectedAt &&
+      dayjs(o.rejectedAt).isBetween(startOfMonth, endOfMonth, "day", "[]");
+
     // Calculations
     const todayDeliveries = allDeliveredOrders.filter(isDeliveredToday).length;
-    const weekDeliveries = allDeliveredOrders.filter(isDeliveredThisWeek).length;
-    const monthDeliveries = allDeliveredOrders.filter(isDeliveredThisMonth).length;
+    const weekDeliveries =
+      allDeliveredOrders.filter(isDeliveredThisWeek).length;
+    const monthDeliveries =
+      allDeliveredOrders.filter(isDeliveredThisMonth).length;
     const totalDeliveries = allDeliveredOrders.length;
+    const todayRejections = rejectedOrders.filter(isRejectedToday).length;
+    const weekRejections = rejectedOrders.filter(isRejectedThisWeek).length;
+    const monthRejections = rejectedOrders.filter(isRejectedThisMonth).length;
+    const totalRejections = rejectedOrders.length;
+
+    //WEEKLY BREAKDOWN (Sun–Sat) ---
+    const weekBreakdown = [];
+    for (let i = 0; i < 7; i++) {
+      const day = startOfWeek.add(i, "day");
+
+      const dayCount = allDeliveredOrders.filter(
+        (o) => o.deliveredAt && dayjs(o.deliveredAt).isSame(day, "day")
+      ).length;
+
+      weekBreakdown.push({
+        day: day.format("ddd"), // Sun, Mon, Tue, ...
+        date: day.format("YYYY-MM-DD"),
+        deliveries: dayCount,
+        earnings: dayCount * perDeliveryEarning,
+      });
+    }
+
+    // MONTHLY BREAKDOWN
+    const monthBreakdown = [];
+    let cursor = startOfMonth.clone();
+    let weekIndex = 1;
+
+    while (cursor.isBefore(endOfMonth) || cursor.isSame(endOfMonth, "day")) {
+      const weekStart = cursor.clone();
+
+      // Add 6 days but make sure it stays inside month
+      let weekEnd = weekStart.clone().add(6, "day");
+      if (weekEnd.isAfter(endOfMonth)) {
+        weekEnd = endOfMonth.clone();
+      }
+
+      // Count deliveries in this week segment
+      const weekCount = allDeliveredOrders.filter(
+        (o) =>
+          o.deliveredAt &&
+          dayjs(o.deliveredAt).isBetween(weekStart, weekEnd, "day", "[]")
+      ).length;
+
+      monthBreakdown.push({
+        week: `Week ${weekIndex}`,
+        start: weekStart.format("YYYY-MM-DD"),
+        end: weekEnd.format("YYYY-MM-DD"),
+        deliveries: weekCount,
+        earnings: weekCount * perDeliveryEarning,
+      });
+
+      // Move cursor to next day after this week
+      cursor = weekEnd.clone().add(1, "day");
+      weekIndex++;
+    }
 
     res.json({
       today: {
         deliveries: todayDeliveries,
-        earnings: todayDeliveries * perDeliveryEarning
+        earnings: todayDeliveries * perDeliveryEarning,
+        rejections: todayRejections,
       },
       week: {
         deliveries: weekDeliveries,
-        earnings: weekDeliveries * perDeliveryEarning
+        earnings: weekDeliveries * perDeliveryEarning,
+        rejections: weekRejections,
+        breakdown: weekBreakdown,
       },
       month: {
         deliveries: monthDeliveries,
-        earnings: monthDeliveries * perDeliveryEarning
+        earnings: monthDeliveries * perDeliveryEarning,
+        rejections: monthRejections,
+        breakdown: monthBreakdown,
       },
       total: {
         deliveries: totalDeliveries,
-        earnings: totalDeliveries * perDeliveryEarning
-      }
+        earnings: totalDeliveries * perDeliveryEarning,
+        rejections: totalRejections,
+      },
     });
-
   } catch (err) {
     res.status(500).json({
       message: "Error calculating metrics",
-      error: err.message
+      error: err.message,
     });
   }
 };
