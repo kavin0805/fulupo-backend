@@ -6,6 +6,12 @@ import Product from "../../modules/storeAdmin/Product.js";
 import StoreDeliverySlot from "../../modules/storeAdmin/storeDeliverySlot.js";
 import mongoose from "mongoose";
 import DeliveryPerson from "../../modules/storeAdmin/deliveryPerson.js";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 
 // 🧾 Create Order (COD or Razorpay)
 // export const createOrder = async (req, res) => {
@@ -70,7 +76,10 @@ function generatePin() {
 // list the available slots to place an order
 export const listAvailableSlots = async (req, res) => {
   try {
-    const { date, storeId: storeIdFromQuery } = req.query;
+    const { storeId: storeIdFromQuery } = req.query;
+
+    const date = dayjs().tz("Asia/Kolkata").format("YYYY-MM-DD");
+
     if (!date) return res.status(400).json({ message: "date is required" });
 
     // Resolve consumer's storeId
@@ -101,7 +110,7 @@ export const listAvailableSlots = async (req, res) => {
       $expr: { $lt: ["$bookedCount", "$capacity"] },
     }).sort({ start: 1 });
 
-    res.json({ data: slots });
+    res.json({ Slots: slots });
   } catch (e) {
     res.status(500).json({ message: "List error", error: e.message });
   }
@@ -119,10 +128,11 @@ export const PlaceOrderWithSlot = async (req, res) => {
       items,
       totalAmount,
       paymentMode,
-      date,
       start,
       end,
     } = req.body;
+
+    const date = dayjs().tz("Asia/Kolkata").format("YYYY-MM-DD");
 
     if (
       !storeId ||
@@ -130,7 +140,6 @@ export const PlaceOrderWithSlot = async (req, res) => {
       !items?.length ||
       !totalAmount ||
       !paymentMode ||
-      !date ||
       !start ||
       !end
     )

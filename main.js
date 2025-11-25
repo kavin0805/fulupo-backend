@@ -37,7 +37,9 @@ import deliveryPersonRoutes from "./routes/delivery/deliveryPersonRoutes.js";
 import storeOrderRoutes from "./routes/storeAdmin/orderRoutes.js";
 import storeSlotRoutes from "./routes/storeAdmin/storeSlotRoutes.js";
 import MasterAdminSlotTemplateRoutes from "./routes/masterAdmin/slotTemplateRoutes.js";
-import EmployeeRoutes from "./routes/storeAdmin/employeeRoutes.js"
+import EmployeeRoutes from "./routes/storeAdmin/employeeRoutes.js";
+import DeliveryNotification from "./modules/delivery/deliveryNotification.js";
+import NotificationRoutes from './routes/delivery/notificationRoutes.js'
 
 const app = express();
 dotenv.config();
@@ -66,18 +68,30 @@ io.on("connection", (socket) => {
 
   // When a delivery person connects, they’ll join their personal room
   socket.on("registerDeliveryPerson", (data) => {
-  const deliveryPersonId =
-    typeof data === "string" ? data : data.deliveryPersonId;
+    const deliveryPersonId =
+      typeof data === "string" ? data : data.deliveryPersonId;
 
-  if (!deliveryPersonId) {
-    console.log("Missing deliveryPersonId in register event");
-    return;
-  }
+    if (!deliveryPersonId) {
+      console.log("Missing deliveryPersonId in register event");
+      return;
+    }
 
-  socket.join(`dp_${deliveryPersonId}`);
-  console.log(`Delivery person ${deliveryPersonId} joined room dp_${deliveryPersonId}`);
-});
+    socket.join(`dp_${deliveryPersonId}`);
+    console.log(
+      `Delivery person ${deliveryPersonId} joined room dp_${deliveryPersonId}`
+    );
+  });
 
+  socket.on("requestBadgeUpdate", async (dpId) => {
+    if (!dpId) return;
+
+    const unreadCount = await DeliveryNotification.countDocuments({
+      deliveryPersonId: dpId,
+      isRead: false,
+    });
+
+    socket.emit("notificationBadgeUpdate", { unreadCount });
+  });
 
   // handle disconnection
   socket.on("disconnect", () => {
@@ -138,6 +152,7 @@ const startServer = async () => {
 
     // for delivery person
     app.use("/api/deliveryPerson", deliveryPersonRoutes);
+    app.use("/api/deliveryPerson",NotificationRoutes);
 
     const PORT = process.env.PORT || 5000;
     server.listen(PORT, () => {

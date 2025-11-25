@@ -1,16 +1,12 @@
 import DeliveryNotification from "../modules/delivery/deliveryNotification.js";
+import dayjs from "dayjs";
 
-/**
- * Pushes a delivery notification to DB + emits via Socket.IO if connected.
- * @param {Object} data
- * @param {string} data.deliveryPersonId - The ID of the delivery person
- * @param {string} data.storeId - Store ID related to the notification
- * @param {string} data.orderId - Order ID related to the notification
- * @param {string} data.type - Type of notification ("StatusDelivered", "StatusRejected", etc.)
- * @param {string} data.title - Notification title
- * @param {string} data.message - Notification message
- * @param {number} [data.expiresInHours=72] - Expiry duration in hours
- */
+// Simple in-memory rate limiter
+const notifCache = new Map();
+// Format: notifCache.set(deliveryPersonId, { lastMessage, lastTime })
+
+const RATE_LIMIT_MS = 5000; // 5 seconds
+
 const pushDeliveryNotification = async ({
   deliveryPersonId,
   storeId,
@@ -22,14 +18,30 @@ const pushDeliveryNotification = async ({
 }) => {
   try {
     if (!deliveryPersonId || !type || !title || !message) {
-      console.warn("Missing required notification data");
+      console.warn("Missing required notification fields");
       return;
     }
 
-    // Expiration logic (default 3 days)
-    const expiresAt = new Date(Date.now() + expiresInHours * 3600 * 1000);
+    // rate limiting + preventing duplicates
+    const now = Date.now();
+    const cache = notifCache.get(deliveryPersonId);
 
-    // Save notification to DB
+    if (cache) {
+      const sameMessage = cache.lastMessage === message;
+      const tooSoon = now - cache.lastTime < RATE_LIMIT_MS;
+
+      if (sameMessage && tooSoon) {
+        console.log(`Notification suppressed (dupe): DP ${deliveryPersonId}`);
+        return;
+      }
+    }
+
+    notifCache.set(deliveryPersonId, { lastMessage: message, lastTime: now });
+
+    // notification expiry logic
+    const expiresAt = dayjs().add(expiresInHours, "hours").toDate();
+
+    // save to db
     const notification = await DeliveryNotification.create({
       deliveryPersonId,
       storeId,
@@ -40,17 +52,24 @@ const pushDeliveryNotification = async ({
       expiresAt,
     });
 
-    // Emit to delivery person’s socket room (real-time)
+    // get updated unread count
+    const unreadCount = await DeliveryNotification.countDocuments({
+      deliveryPersonId,
+      isRead: false,
+    });
+
+    // Real time notification push
     if (global.io) {
       const roomId = `dp_${deliveryPersonId}`;
       const room = global.io.sockets.adapter.rooms.get(roomId);
 
       if (room && room.size > 0) {
-        // Active connection found → push immediately
+        // Send notification + badge update
         global.io.to(roomId).emit("notification", notification);
-        console.log(`Sent live notification to ${roomId}`);
+        global.io.to(roomId).emit("notificationBadgeUpdate", { unreadCount });
+        console.log(`Real-time notif + badge sent → ${roomId}`);
       } else {
-        console.log(`Delivery person ${deliveryPersonId} offline — saved to DB`);
+        console.log(`DP ${deliveryPersonId} offline — saved to DB`);
       }
     }
 
