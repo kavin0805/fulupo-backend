@@ -1,6 +1,6 @@
 import express from 'express';
 import deliveryPerson from "../../modules/storeAdmin/deliveryPerson.js";
-import { createDeliveryPersonByStore, getDeliveryPersonsByStore, getDeliveryPersonByStoreAndId, deleteDeliveryPersonByStoreAndId } from "../../controllers/storeAdmin/deliveryPersonController.js";
+import { createDeliveryPersonByStore, getDeliveryPersonsByStore, getDeliveryPersonByStoreAndId, deleteDeliveryPersonByStoreAndId, searchDeliveryPersonsByStore } from "../../controllers/storeAdmin/deliveryPersonController.js";
 import { verifyStoreAdmin } from "../../middleware/authMiddeware.js";
 
 const router = express.Router();
@@ -13,5 +13,7 @@ router.get("/list", verifyStoreAdmin, getDeliveryPersonsByStore);
 router.get("/get-one", verifyStoreAdmin, getDeliveryPersonByStoreAndId);
 //  delete a delivery person by store ID and delivery person ID
 router.delete("/delete-one", verifyStoreAdmin, deleteDeliveryPersonByStoreAndId);
+// search delivery persons
+router.get("/search", verifyStoreAdmin, searchDeliveryPersonsByStore);
 
 export default router;

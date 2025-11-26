@@ -38,16 +38,10 @@ const orderSchema = new mongoose.Schema(
       enum: ["Pending", "Paid", "Failed"],
       default: "Pending",
     },
-    razorpayOrderId: { type: String },
-    razorpayPaymentId: { type: String },
-    razorpaySignature: { type: String },
-
-    orderNumber: {
-      type: String,
-      unique: true,
-      index: true,
-    },
-
+    razorpayOrderId: String,
+    razorpayPaymentId: String,
+    razorpaySignature: String,
+    orderNumber: { type: String, unique: true, index: true },
     orderStatus: {
       type: String,
       enum: [
@@ -69,8 +63,10 @@ const orderSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "DeliveryPerson",
     },
-
     deliveryRating: { type: Number, min: 1, max: 5 },
+    deliveredAt: Date,
+    rejectionReason: { type: String },
+    rejectedAt: { type: Date },
   },
   { timestamps: true }
 );
@@ -83,7 +79,7 @@ orderSchema.pre("save", async function (next) {
 
     const randomDigits = Math.floor(
       100000000000 + Math.random() * 900000000000
-    ); 
+    );
     this.orderNumber = `ORD${year}${month}${randomDigits}`;
   }
   next();

@@ -21,7 +21,7 @@ export const createDeliveryPersonByStore = async (req, res) => {
         .json({ message: "Mobile or email already exists" });
     }
 
-    const person = await DeliveryPerson.create({
+    const Deliveryperson = await DeliveryPerson.create({
       name,
       mobile,
       email,
@@ -31,7 +31,7 @@ export const createDeliveryPersonByStore = async (req, res) => {
       isVerified: false,
     });
 
-    res.status(201).json({ message: "Delivery person created", data: person });
+    res.status(201).json({ message: "Delivery person created", DeliveryPerson: DeliveryPerson });
   } catch (err) {
     res
       .status(500)
@@ -46,10 +46,10 @@ export const getDeliveryPersonsByStore = async (req, res) => {
     if (!storeId)
       return res.status(400).json({ message: "storeId is required" });
 
-    const persons = await DeliveryPerson.find({ storeId: storeId }).sort({
+    const deliveryPeople = await DeliveryPerson.find({ storeId: storeId }).sort({
       createdAt: -1,
     });
-    res.json({ count: persons.length, data: persons });
+    res.json({ count: deliveryPeople.length, deliveryPeople: deliveryPeople });
   } catch (err) {
     res
       .status(500)
@@ -60,26 +60,26 @@ export const getDeliveryPersonsByStore = async (req, res) => {
 // Get delivery person by ID -store admin access
 export const getDeliveryPersonByStoreAndId = async (req, res) => {
   try {
-    const { storeId, personId } = req.query;
+    const { storeId, dpId } = req.query;
 
-    if (!storeId || !personId) {
+    if (!storeId || !dpId) {
       return res
         .status(400)
-        .json({ message: "storeId and personId are required" });
+        .json({ message: "storeId and dpId are required" });
     }
 
-    const person = await DeliveryPerson.findOne({
-      _id: personId,
+    const deliveryPerson = await DeliveryPerson.findOne({
+      _id: dpId,
       storeId: storeId,
     });
 
-    if (!person) {
+    if (!deliveryPerson) {
       return res
         .status(404)
         .json({ message: "Delivery person not found for this store" });
     }
 
-    res.json({ data: person });
+    res.json({ deliveryPerson: deliveryPerson });
   } catch (err) {
     res
       .status(500)
@@ -90,16 +90,16 @@ export const getDeliveryPersonByStoreAndId = async (req, res) => {
 // Delete delivery person by ID - store admin access
 export const deleteDeliveryPersonByStoreAndId = async (req, res) => {
   try {
-    const { storeId, personId } = req.query;
+    const { storeId, dpID } = req.query;
 
-    if (!storeId || !personId) {
+    if (!storeId || !dpID) {
       return res
         .status(400)
-        .json({ message: "storeId and personId are required" });
+        .json({ message: "storeId and dpID are required" });
     }
 
     const deleted = await DeliveryPerson.findOneAndDelete({
-      _id: personId,
+      _id: dpID,
       storeId: storeId,
     });
 
@@ -114,5 +114,42 @@ export const deleteDeliveryPersonByStoreAndId = async (req, res) => {
     res
       .status(500)
       .json({ message: "Error deleting delivery person", error: err.message });
+  }
+};
+
+// Search Delivery Person by Store Admin
+export const searchDeliveryPersonsByStore = async (req, res) => {
+  try {
+    const { storeId, query } = req.query;
+
+    if (!storeId) {
+      return res.status(400).json({ message: "storeId is required" });
+    }
+
+    if (!query || query.trim() === "") {
+      return res.status(400).json({ message: "Search query is required" });
+    }
+
+    const regex = new RegExp(query, "i"); // case-insensitive search
+
+    const deliveryPeople = await DeliveryPerson.find({
+      storeId,
+      $or: [
+        { name: regex },
+        { mobile: regex },
+        { email: regex },
+      ],
+    }).sort({ createdAt: -1 });
+
+    res.json({
+      count: deliveryPeople.length,
+      deliveryPeople: deliveryPeople,
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      message: "Error searching delivery persons",
+      error: err.message,
+    });
   }
 };

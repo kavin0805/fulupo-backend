@@ -8,6 +8,7 @@ import {
   getMyProfile,
   updateMyProfile,
   completeDelivery,
+  getOrderDetails,
   respondToOrder,
   getTodayOverview,
   getOrderHistory,
@@ -43,6 +44,7 @@ router.put(
 );
 router.post("/respond", verifyDeliveryPerson, respondToOrder);
 router.post("/complete-delivery", verifyDeliveryPerson, completeDelivery);
+router.get("/order-details", verifyDeliveryPerson, getOrderDetails);
 router.get("/overview/today", verifyDeliveryPerson, getTodayOverview);
 router.get("/history", verifyDeliveryPerson, getOrderHistory);
 router.get("/metrics", verifyDeliveryPerson, getDeliveryMetrics);
