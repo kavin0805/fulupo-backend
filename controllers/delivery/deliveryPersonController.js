@@ -435,7 +435,7 @@ export const getTodayOverview = async (req, res) => {
     );
 
     const toBeDelivered = orders.filter((o) =>
-      ["ACCEPTED_BY_DP", "PICKED_UP", "OUT_FOR_DELIVERY"].includes(o.orderStatus)
+      ["ASSIGNED_TO_DP", "ACCEPTED_BY_DP","REJECTED_BY_DP", "PICKED_UP", "OUT_FOR_DELIVERY"].includes(o.orderStatus)
     );
 
     const delivered = orders.filter(
