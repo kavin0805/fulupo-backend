@@ -48,6 +48,8 @@ const orderSchema = new mongoose.Schema(
         "PENDING_STORE_APPROVAL",
         "WAITING_FOR_DP_ASSIGNMENT",
         "ASSIGNED_TO_DP",
+        "ACCEPTED_BY_DP",
+        "PICKED_UP",
         "OUT_FOR_DELIVERY",
         "DELIVERED",
         "REJECTED_BY_DP",

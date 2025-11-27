@@ -9,10 +9,13 @@ import {
   updateMyProfile,
   completeDelivery,
   getOrderDetails,
+  pickUpOrder,
+  startDelivery,
   respondToOrder,
   getTodayOverview,
   getOrderHistory,
   getDeliveryMetrics
+  
 } from "../../controllers/delivery/deliveryPersonController.js";
 import { upload } from "../../middleware/upload.js";
 import { verifyDeliveryPerson } from "../../middleware/deliveryPersonAuth.js";
@@ -42,9 +45,12 @@ router.put(
   ]),
   updateMyProfile
 );
+
+router.get("/order-details", verifyDeliveryPerson, getOrderDetails);
 router.post("/respond", verifyDeliveryPerson, respondToOrder);
 router.post("/complete-delivery", verifyDeliveryPerson, completeDelivery);
-router.get("/order-details", verifyDeliveryPerson, getOrderDetails);
+router.post("/pick-up", verifyDeliveryPerson, pickUpOrder);
+router.post("/start-delivery", verifyDeliveryPerson, startDelivery);
 router.get("/overview/today", verifyDeliveryPerson, getTodayOverview);
 router.get("/history", verifyDeliveryPerson, getOrderHistory);
 router.get("/metrics", verifyDeliveryPerson, getDeliveryMetrics);

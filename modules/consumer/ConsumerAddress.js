@@ -7,6 +7,9 @@ const addressSchema = new mongoose.Schema({
   addressLine: { type: String, required: true },
   addressName : { type: String, required: true },
   addressType: { type: String, enum: ["Home", "Work", "Other"], default: "Home" },
+  lat: {require : true , type: String},
+  long: {require : true , type: String},
+  geolation: {require : true , type: String},
   isDefault: { type: Boolean, default: false },
 }, { timestamps: true });
 
