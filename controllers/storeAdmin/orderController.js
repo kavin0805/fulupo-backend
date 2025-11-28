@@ -186,6 +186,14 @@ export const getStoreOrders = async (req, res) => {
                   then: "ASSIGNED_TO_DP",
                 },
                 {
+                  case: { $eq: ["$orderStatus", "ACCEPTED_BY_DP"] },
+                  then: "ACCEPTED_BY_DP",
+                },
+                {
+                  case: { $eq: ["$orderStatus", "PICKED_UP"] },
+                  then: "PICKED_UP",
+                },
+                {
                   case: { $eq: ["$orderStatus", "OUT_FOR_DELIVERY"] },
                   then: "OUT_FOR_DELIVERY",
                 },
@@ -212,6 +220,8 @@ export const getStoreOrders = async (req, res) => {
       PENDING_STORE_APPROVAL: 0,
       WAITING_FOR_DP_ASSIGNMENT: 0,
       ASSIGNED_TO_DP: 0,
+      ACCEPTED_BY_DP: 0,
+      PICKED_UP: 0,
       OUT_FOR_DELIVERY: 0,
       DELIVERED: 0,
       REJECTED_BY_DP: 0,

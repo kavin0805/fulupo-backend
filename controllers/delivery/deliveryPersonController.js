@@ -78,84 +78,6 @@ export const updateMyProfile = async (req, res) => {
   }
 };
 
-// order accept/reject function
-export const respondToOrder = async (req, res) => {
-  try {
-    const dpId = req.deliveryPerson._id;
-    const { orderId, action, rejectionReason } = req.body; // <-- PATCHED
-
-    const order = await Order.findById(orderId);
-    if (!order || String(order.deliveryPersonId) !== String(dpId)) {
-      return res
-        .status(404)
-        .json({ message: "Order not assigned to this delivery person" });
-    }
-
-    // // Prevent duplicate responses
-    if (
-      ["DELIVERED", "REJECTED_BY_DP", "OUT_FOR_DELIVERY"].includes(
-        order.orderStatus
-      )
-    ) {
-      return res.status(400).json({
-        message: `Order already ${order.orderStatus
-          .replace(/_/g, " ")
-          .toLowerCase()}`,
-      });
-    }
-
-    const today = dayjs().format("YYYY-MM-DD");
-    const dp = await DeliveryPerson.findById(dpId);
-
-    // // Reset daily rejection counter
-    if (dp.rejectionCountDate !== today) {
-      dp.rejectionCountDate = today;
-      dp.rejectionCount = 0;
-    }
-
-    // REJECT flow
-    if (action === "REJECT") {
-      if (dp.rejectionCount >= dp.rejectionLimitPerDay) {
-        return res
-          .status(403)
-          .json({ message: "Daily rejection limit reached" });
-      }
-
-      dp.rejectionCount += 1;
-      await dp.save();
-      order.orderStatus = "REJECTED_BY_DP";
-      order.rejectionReason = rejectionReason || null;
-      order.rejectedAt = new Date();
-      await order.save();
-
-      // Push notification (DB + Socket)
-      await pushDeliveryNotification({
-        deliveryPersonId: dpId,
-        storeId: order.storeId,
-        orderId: order._id,
-        type: "StatusRejected",
-        title: "Delivery Rejected",
-        message: `Order #${
-          order.orderNumber?.slice(-4) || order._id.toString().slice(-4)
-        } rejected. You've used ${dp.rejectionCount}/${
-          dp.rejectionLimitPerDay
-        } rejections today.`,
-      });
-
-      return res.json({ message: "Order rejected successfully" });
-    }
-
-    // ACCEPT flow
-    order.orderStatus = "OUT_FOR_DELIVERY";
-    await order.save();
-
-    res.json({ message: "Order accepted successfully", order });
-  } catch (err) {
-    console.error("DP response error:", err);
-    res.status(500).json({ message: "DP response error", error: err.message });
-  }
-};
-
 // get order details
 export const getOrderDetails = async (req, res) => {
   try {
@@ -171,7 +93,10 @@ export const getOrderDetails = async (req, res) => {
       deliveryPersonId: dpId,
     })
       .populate("consumerId", "name mobile")
-      .populate("addressId", "addressLine addressName addressType")
+      .populate(
+        "addressId",
+        "addressLine addressName addressType lat long geolocation"
+      )
       .populate("items.productId", "name")
       .populate("storeId");
 
@@ -193,6 +118,9 @@ export const getOrderDetails = async (req, res) => {
     const store = order.storeId || {};
     const storeName = store.store_name;
     const storeAddress = store.store_address;
+    const storeLat = store.lat;
+    const storeLong = store.long;
+    const storeGeolocation = store.geolocation;
 
     // cleaner response
     const clean = {
@@ -212,6 +140,9 @@ export const getOrderDetails = async (req, res) => {
             line: order.addressId.addressLine,
             label: order.addressId.addressName,
             type: order.addressId.addressType,
+            lat: order.addressId.lat,
+            long: order.addressId.long,
+            geolocation: order.addressId.geolocation,
           }
         : null,
       items: order.items.map((i) => ({
@@ -228,6 +159,9 @@ export const getOrderDetails = async (req, res) => {
       store: {
         name: storeName,
         address: storeAddress,
+        lat: storeLat,
+        long: storeLong,
+        geolocation: storeGeolocation,
       },
     };
 
@@ -240,7 +174,170 @@ export const getOrderDetails = async (req, res) => {
   }
 };
 
-// Delivery completion controller
+// order accept/reject function
+export const respondToOrder = async (req, res) => {
+  try {
+    const dpId = req.deliveryPerson._id;
+    const { orderId, action, rejectionReason } = req.body;
+
+    const order = await Order.findById(orderId);
+    if (!order || String(order.deliveryPersonId) !== String(dpId)) {
+      return res
+        .status(404)
+        .json({ message: "Order not assigned to this delivery person" });
+    }
+
+    // Reject Allowed only before pickup
+    const rejectValidStatuses = ["ASSIGNED_TO_DP"];
+
+    // Accept Allowed only if assigned
+    const acceptValidStatuses = ["ASSIGNED_TO_DP"];
+
+    // REJECT FLOW
+    if (action === "REJECT") {
+      if (!rejectValidStatuses.includes(order.orderStatus)) {
+        return res.status(400).json({
+          message: "Cannot reject in current status",
+          currentStatus: order.orderStatus,
+        });
+      }
+
+      const todayStr = dayjs().format("YYYY-MM-DD");
+      const dp = await DeliveryPerson.findById(dpId);
+
+      if (dp.rejectionCountDate !== todayStr) {
+        dp.rejectionCountDate = todayStr;
+        dp.rejectionCount = 0;
+      }
+
+      if (dp.rejectionCount >= dp.rejectionLimitPerDay) {
+        return res
+          .status(403)
+          .json({ message: "Daily rejection limit reached" });
+      }
+
+      dp.rejectionCount += 1;
+      await dp.save();
+
+      order.orderStatus = "REJECTED_BY_DP";
+      order.rejectedAt = new Date();
+      order.rejectionReason = rejectionReason || null;
+      await order.save();
+
+      await DeliveryPerson.updateOne(
+        { _id: dpId },
+        { $inc: { rejectedDeliveries: 1 } }
+      );
+
+      await pushDeliveryNotification({
+        deliveryPersonId: dpId,
+        storeId: order.storeId,
+        orderId: order._id,
+        type: "StatusRejected",
+        title: "Delivery Rejected",
+        message: `Order ${
+          order.orderNumber?.slice(-4)
+        } rejected. ${dp.rejectionCount}/${dp.rejectionLimitPerDay} today.`,
+      });
+
+      return res.json({ message: "Order rejected successfully" });
+    }
+
+    // ACCEPT FLOW
+    if (action === "ACCEPT") {
+      if (!acceptValidStatuses.includes(order.orderStatus)) {
+        return res.status(400).json({
+          message: "Cannot accept in current status",
+          currentStatus: order.orderStatus,
+        });
+      }
+
+      order.orderStatus = "ACCEPTED_BY_DP";
+      await order.save();
+
+      // pendingDelivery increments when accepted
+      await DeliveryPerson.updateOne(
+        { _id: dpId },
+        { $inc: { pendingDeliveries: 1 } }
+      );
+
+      return res.json({ message: "Order accepted successfully", order });
+    }
+
+    return res.status(400).json({ message: "Invalid action" });
+
+  } catch (err) {
+    console.error("DP response error:", err);
+    res.status(500).json({ message: "DP response error", error: err.message });
+  }
+};
+
+// DP marks order as picked up from store - order status changes to picked up
+export const pickUpOrder = async (req, res) => {
+  try {
+    const dpId = req.deliveryPerson._id;
+    const { orderId } = req.body;
+
+    const order = await Order.findById(orderId);
+    if (!order || String(order.deliveryPersonId) !== String(dpId)) {
+      return res
+        .status(404)
+        .json({ message: "Order not assigned to this delivery person" });
+    }
+
+    // Only allow from ACCEPTED_BY_DP
+    if (order.orderStatus !== "ACCEPTED_BY_DP") {
+      return res.status(400).json({
+        message: "Cannot mark picked up in current status",
+        currentStatus: order.orderStatus,
+      });
+    }
+
+    order.orderStatus = "PICKED_UP";
+    await order.save();
+
+    return res.json({ message: "Order marked as picked up", order });
+  } catch (err) {
+    console.error("Pick-up error:", err);
+    res.status(500).json({ message: "Pick-up error", error: err.message });
+  }
+};
+
+// DP starts delivery - order status changes to OUT_FOR_DELIVERY
+export const startDelivery = async (req, res) => {
+  try {
+    const dpId = req.deliveryPerson._id;
+    const { orderId } = req.body;
+
+    const order = await Order.findById(orderId);
+    if (!order || String(order.deliveryPersonId) !== String(dpId)) {
+      return res
+        .status(404)
+        .json({ message: "Order not assigned to this delivery person" });
+    }
+
+    // Only allow from PICKED_UP
+    if (order.orderStatus !== "PICKED_UP") {
+      return res.status(400).json({
+        message: "Cannot start delivery in current status",
+        currentStatus: order.orderStatus,
+      });
+    }
+
+    order.orderStatus = "OUT_FOR_DELIVERY";
+    await order.save();
+
+    return res.json({ message: "Delivery started", order });
+  } catch (err) {
+    console.error("Start delivery error:", err);
+    res.status(500).json({
+      message: "Start delivery error",
+      error: err.message,
+    });
+  }
+};
+
+// complete the delivery with pin from the consumer
 export const completeDelivery = async (req, res) => {
   try {
     const dpId = req.deliveryPerson._id;
@@ -258,6 +355,14 @@ export const completeDelivery = async (req, res) => {
       return res.status(400).json({ message: "Order already delivered" });
     }
 
+    // Only allow completion from OUT_FOR_DELIVERY
+    if (order.orderStatus !== "OUT_FOR_DELIVERY") {
+      return res.status(400).json({
+        message: "Cannot complete delivery in current status",
+        currentStatus: order.orderStatus,
+      });
+    }
+
     if (order.deliveryPin !== pin)
       return res.status(400).json({ message: "Invalid delivery PIN" });
 
@@ -265,7 +370,21 @@ export const completeDelivery = async (req, res) => {
     order.deliveredAt = new Date();
     await order.save();
 
-    // Push notification (DB + Socket)
+    // update dp counters
+    const perEarning = req.deliveryPerson.earningsPerDelivery || 0;
+
+    await DeliveryPerson.updateOne(
+      { _id: dpId },
+      {
+        $inc: {
+          completedDeliveries: 1,
+          pendingDeliveries: -1,
+          totalDeliveries: 1,
+          totalEarnings: perEarning,
+        },
+      }
+    );
+
     await pushDeliveryNotification({
       deliveryPersonId: dpId,
       storeId: order.storeId,
@@ -286,7 +405,7 @@ export const completeDelivery = async (req, res) => {
   }
 };
 
-// Get today's overview (to be delivered + delivered)
+// Get today's overview (to be delivered + delivered)// Get today's overview (to be delivered + delivered)
 export const getTodayOverview = async (req, res) => {
   try {
     const dpId = req.deliveryPerson._id;
@@ -294,27 +413,29 @@ export const getTodayOverview = async (req, res) => {
 
     const orders = await Order.find({
       deliveryPersonId: dpId,
-      orderStatus: { $in: ["OUT_FOR_DELIVERY", "DELIVERED"] },
+      orderStatus: { $in: ["ACCEPTED_BY_DP", "PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERED"] },
+      slotDate: today
     })
       .populate("consumerId", "name mobile")
-      .populate("addressId", "addressLine addressName addressType")
-      .populate("items.productId", "name");
+      .populate("addressId", "addressLine addressName addressType lat long geolocation")
+      .populate("items.productId", "name")
+      .populate("storeId");
 
-    // fetch rejected orders for today
     const rejectedOrders = await Order.find({
       deliveryPersonId: dpId,
       orderStatus: "REJECTED_BY_DP",
       rejectedAt: { $exists: true, $ne: null },
     })
       .populate("consumerId", "name mobile")
-      .populate("addressId", "addressLine addressName addressType");
+      .populate("addressId", "addressLine addressName addressType lat long geolocation")
+      .populate("storeId");
 
     const todayRejected = rejectedOrders.filter((o) =>
       dayjs(o.rejectedAt).isSame(today, "day")
     );
 
-    const toBeDelivered = orders.filter(
-      (o) => o.orderStatus === "OUT_FOR_DELIVERY" && o.slotDate === today
+    const toBeDelivered = orders.filter((o) =>
+      ["ASSIGNED_TO_DP", "ACCEPTED_BY_DP","REJECTED_BY_DP", "PICKED_UP", "OUT_FOR_DELIVERY"].includes(o.orderStatus)
     );
 
     const delivered = orders.filter(
@@ -324,47 +445,77 @@ export const getTodayOverview = async (req, res) => {
         dayjs(o.deliveredAt).isSame(today, "day")
     );
 
-    const clean = (o) => ({
-      orderId: o._id,
-      orderNumber: o.orderNumber,
-      slot: {
-        date: o.slotDate,
-        start: o.slotStart,
-        end: o.slotEnd,
-      },
-      consumer: o.consumerId
-        ? { name: o.consumerId.name, mobile: o.consumerId.mobile }
-        : null,
-      address: o.addressId
-        ? {
-            line: o.addressId.addressLine,
-            label: o.addressId.addressName,
-            type: o.addressId.addressType,
-          }
-        : null,
-      items: o.items.map((i) => ({
-        productId: i.productId?._id || i.productId,
-        name: i.productId?.name || i.name,
-        quantity: i.quantity,
-        price: i.price,
-        total: i.total,
-      })),
-      totalAmount: o.totalAmount,
-      paymentMode: o.paymentMode,
-      orderStatus: o.orderStatus,
-      deliveredAt: o.deliveredAt || null,
-    });
+    const clean = (o) => {
+      const store = o.storeId || {};
+      return {
+        orderId: o._id,
+        orderNumber: o.orderNumber,
+        slot: { date: o.slotDate, start: o.slotStart, end: o.slotEnd },
+        consumer: o.consumerId ? { name: o.consumerId.name, mobile: o.consumerId.mobile } : null,
+        address: o.addressId ? {
+          line: o.addressId.addressLine,
+          label: o.addressId.addressName,
+          type: o.addressId.addressType,
+          lat: o.addressId.lat,
+          long: o.addressId.long,
+          geolocation: o.addressId.geolocation,
+        } : null,
+        items: o.items.map((i) => ({
+          productId: i.productId?._id || i.productId,
+          name: i.productId?.name || i.name,
+          quantity: i.quantity,
+          price: i.price,
+          total: i.total,
+        })),
+        totalAmount: o.totalAmount,
+        paymentMode: o.paymentMode,
+        orderStatus: o.orderStatus,
+        deliveredAt: o.deliveredAt || null,
+        store: {
+          name: store.store_name || null,
+          address: store.store_address || null,
+          lat: store.lat || null,
+          long: store.long || null,
+          geolocation: store.geolocation || null,
+        },
+      };
+    };
 
-    // to get only rejection details
-    const cleanRejected = (o) => ({
-      orderId: o._id,
-      orderNumber: o.orderNumber,
-      rejectedAt: o.rejectedAt,
-      rejectionReason: o.rejectionReason || null,
-      consumer: o.consumerId
-        ? { name: o.consumerId.name, mobile: o.consumerId.mobile }
-        : null,
-    });
+    const cleanRejected = (o) => {
+      const store = o.storeId || {};
+      return {
+        orderId: o._id,
+        orderNumber: o.orderNumber,
+        rejectedAt: o.rejectedAt,
+        rejectionReason: o.rejectionReason || null,
+        consumer: o.consumerId ? { name: o.consumerId.name, mobile: o.consumerId.mobile } : null,
+        address: o.addressId ? {
+          line: o.addressId.addressLine,
+          label: o.addressId.addressName,
+          type: o.addressId.addressType,
+          lat: o.addressId.lat,
+          long: o.addressId.long,
+          geolocation: o.addressId.geolocation,
+        } : null,
+        items: o.items.map((i) => ({
+          productId: i.productId?._id || i.productId,
+          name: i.productId?.name || i.name,
+          quantity: i.quantity,
+          price: i.price,
+          total: i.total,
+        })),
+        totalAmount: o.totalAmount,
+        paymentMode: o.paymentMode,
+        orderStatus: o.orderStatus,
+        store: {
+          name: store.store_name || null,
+          address: store.store_address || null,
+          lat: store.lat || null,
+          long: store.long || null,
+          geolocation: store.geolocation || null,
+        },
+      };
+    };
 
     res.json({
       date: today,
@@ -377,6 +528,7 @@ export const getTodayOverview = async (req, res) => {
       rejectedOrders: todayRejected.map(cleanRejected),
       allTodayOrders: [...toBeDelivered, ...delivered].map(clean),
     });
+
   } catch (err) {
     res.status(500).json({
       message: "Error fetching today's overview",
@@ -384,6 +536,7 @@ export const getTodayOverview = async (req, res) => {
     });
   }
 };
+
 
 // Get order history with filters (date + status)
 export const getOrderHistory = async (req, res) => {
@@ -427,6 +580,7 @@ export const getOrderHistory = async (req, res) => {
       .populate("consumerId", "name mobile")
       .populate("addressId", "addressLine addressName addressType")
       .populate("items.productId", "name")
+      .populate("storeId", "store_name store_address")
       .sort({ deliveredAt: -1, rejectedAt: -1 })
       .skip(skip)
       .limit(Number(limit));
@@ -457,6 +611,18 @@ export const getOrderHistory = async (req, res) => {
             line: order.addressId.addressLine,
             label: order.addressId.addressName,
             type: order.addressId.addressType,
+            lat: order.addressId.lat,
+            long: order.addressId.long,
+            geolocation: order.addressId.geolocation,
+          }
+        : null,
+      store: order.storeId
+        ? {
+            name: order.storeId.store_name,
+            address: order.storeId.store_address,
+            lat: order.storeId.lat,
+            long: order.storeId.long,
+            geolocation: order.storeId.geolocation,
           }
         : null,
 
@@ -486,14 +652,14 @@ export const getOrderHistory = async (req, res) => {
       ...filter,
       orderStatus: "REJECTED_BY_DP",
     });
-    
+
     res.json({
       page: Number(page),
       limit: Number(limit),
       totalOrders,
       totalPages: Math.ceil(totalOrders / limit),
       deliveriesInRange,
-      rejectionsInRange, 
+      rejectionsInRange,
       data: cleanData,
     });
   } catch (err) {
