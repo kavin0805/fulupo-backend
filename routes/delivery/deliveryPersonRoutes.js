@@ -9,6 +9,7 @@ import {
   updateMyProfile,
   completeDelivery,
   getOrderDetails,
+  toggleFavoriteCustomer,
   pickUpOrder,
   startDelivery,
   respondToOrder,
@@ -47,6 +48,7 @@ router.put(
 );
 
 router.get("/order-details", verifyDeliveryPerson, getOrderDetails);
+router.post("/favorite",verifyDeliveryPerson, toggleFavoriteCustomer)
 router.post("/respond", verifyDeliveryPerson, respondToOrder);
 router.post("/complete-delivery", verifyDeliveryPerson, completeDelivery);
 router.post("/pick-up", verifyDeliveryPerson, pickUpOrder);

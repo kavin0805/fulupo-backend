@@ -5,6 +5,7 @@ import pushDeliveryNotification from "../../utils/deliveryNotificationHelper.js"
 import isBetween from "dayjs/plugin/isBetween.js";
 dayjs.extend(isBetween); // enable the plugin
 import isoWeek from "dayjs/plugin/isoWeek.js";
+import { assign } from "nodemailer/lib/shared/index.js";
 dayjs.extend(isoWeek);
 
 // Get my profile
@@ -88,6 +89,9 @@ export const getOrderDetails = async (req, res) => {
       return res.status(400).json({ message: "orderId is required" });
     }
 
+    const dp = await DeliveryPerson.findById(dpId).lean();
+    const favoriteIds = dp?.favoriteConsumers?.map((id) => String(id)) || [];
+
     const order = await Order.findOne({
       _id: orderId,
       deliveryPersonId: dpId,
@@ -126,6 +130,9 @@ export const getOrderDetails = async (req, res) => {
     const clean = {
       orderId: order._id,
       orderNumber: order.orderNumber,
+      fastDelivery: order.fastDelivery,
+      deliveryCharge: order.deliveryCharge,
+      assignedAt: order.updatedAt || null,
       slot: {
         date: order.slotDate,
         start: order.slotStart,
@@ -134,15 +141,16 @@ export const getOrderDetails = async (req, res) => {
       consumer: {
         name: order.consumerId?.name,
         mobile: order.consumerId?.mobile,
+        isFavorite: favoriteIds.includes(String(order.consumerId._id)),
       },
       address: order.addressId
         ? {
             line: order.addressId.addressLine,
             label: order.addressId.addressName,
             type: order.addressId.addressType,
-            lat: order.addressId.lat,
-            long: order.addressId.long,
-            geolocation: order.addressId.geolocation,
+            lat: order.addressId.lat || null,
+            long: order.addressId.long || null,
+            geolocation: order.addressId.geolocation || null,
           }
         : null,
       items: order.items.map((i) => ({
@@ -159,9 +167,9 @@ export const getOrderDetails = async (req, res) => {
       store: {
         name: storeName,
         address: storeAddress,
-        lat: storeLat,
-        long: storeLong,
-        geolocation: storeGeolocation,
+        lat: storeLat || null,
+        long: storeLong || null,
+        geolocation: storeGeolocation || null,
       },
     };
 
@@ -171,6 +179,44 @@ export const getOrderDetails = async (req, res) => {
       message: "Error fetching order details",
       error: err.message,
     });
+  }
+};
+
+// function to toggle customer as favorite or not
+export const toggleFavoriteCustomer = async (req, res) => {
+  try {
+    const dpId = req.deliveryPerson._id;
+    const { consumerId } = req.body;
+
+    if (!consumerId) {
+      return res.status(400).json({ message: "consumerId is required" });
+    }
+
+    const dp = await DeliveryPerson.findById(dpId);
+
+    const index = dp.favoriteConsumers.findIndex(
+      (id) => String(id) === String(consumerId)
+    );
+
+    if (index === -1) {
+      dp.favoriteConsumers.push(consumerId);
+      await dp.save();
+      return res.json({
+        message: "Customer added to favorites",
+        isFavorite: true,
+      });
+    } else {
+      dp.favoriteConsumers.splice(index, 1);
+      await dp.save();
+      return res.json({
+        message: "Customer removed from favorites",
+        isFavorite: false,
+      });
+    }
+  } catch (err) {
+    res
+      .status(500)
+      .json({ message: "Error updating favorite", error: err.message });
   }
 };
 
@@ -200,6 +246,11 @@ export const respondToOrder = async (req, res) => {
           message: "Cannot reject in current status",
           currentStatus: order.orderStatus,
         });
+      }
+      if (!rejectionReason || rejectionReason.trim() === "") {
+        return res
+          .status(400)
+          .json({ message: "Rejection reason is required" });
       }
 
       const todayStr = dayjs().format("YYYY-MM-DD");
@@ -235,9 +286,9 @@ export const respondToOrder = async (req, res) => {
         orderId: order._id,
         type: "StatusRejected",
         title: "Delivery Rejected",
-        message: `Order ${
-          order.orderNumber?.slice(-4)
-        } rejected. ${dp.rejectionCount}/${dp.rejectionLimitPerDay} today.`,
+        message: `Order ${order.orderNumber?.slice(-4)} rejected. ${
+          dp.rejectionCount
+        }/${dp.rejectionLimitPerDay} today.`,
       });
 
       return res.json({ message: "Order rejected successfully" });
@@ -265,7 +316,6 @@ export const respondToOrder = async (req, res) => {
     }
 
     return res.status(400).json({ message: "Invalid action" });
-
   } catch (err) {
     console.error("DP response error:", err);
     res.status(500).json({ message: "DP response error", error: err.message });
@@ -409,15 +459,28 @@ export const completeDelivery = async (req, res) => {
 export const getTodayOverview = async (req, res) => {
   try {
     const dpId = req.deliveryPerson._id;
+    const dp = await DeliveryPerson.findById(dpId).lean();
+    const favoriteIds = dp?.favoriteConsumers?.map((id) => String(id)) || [];
     const today = dayjs().format("YYYY-MM-DD");
 
     const orders = await Order.find({
       deliveryPersonId: dpId,
-      orderStatus: { $in: ["ACCEPTED_BY_DP", "PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERED"] },
-      slotDate: today
+      orderStatus: {
+        $in: [
+          "ASSIGNED_TO_DP",
+          "ACCEPTED_BY_DP",
+          "PICKED_UP",
+          "OUT_FOR_DELIVERY",
+          "DELIVERED",
+        ],
+      },
+      slotDate: today,
     })
       .populate("consumerId", "name mobile")
-      .populate("addressId", "addressLine addressName addressType lat long geolocation")
+      .populate(
+        "addressId",
+        "addressLine addressName addressType lat long geolocation"
+      )
       .populate("items.productId", "name")
       .populate("storeId");
 
@@ -427,7 +490,10 @@ export const getTodayOverview = async (req, res) => {
       rejectedAt: { $exists: true, $ne: null },
     })
       .populate("consumerId", "name mobile")
-      .populate("addressId", "addressLine addressName addressType lat long geolocation")
+      .populate(
+        "addressId",
+        "addressLine addressName addressType lat long geolocation"
+      )
       .populate("storeId");
 
     const todayRejected = rejectedOrders.filter((o) =>
@@ -435,7 +501,13 @@ export const getTodayOverview = async (req, res) => {
     );
 
     const toBeDelivered = orders.filter((o) =>
-      ["ASSIGNED_TO_DP", "ACCEPTED_BY_DP","REJECTED_BY_DP", "PICKED_UP", "OUT_FOR_DELIVERY"].includes(o.orderStatus)
+      [
+        "ASSIGNED_TO_DP",
+        "ACCEPTED_BY_DP",
+        "REJECTED_BY_DP",
+        "PICKED_UP",
+        "OUT_FOR_DELIVERY",
+      ].includes(o.orderStatus)
     );
 
     const delivered = orders.filter(
@@ -450,16 +522,27 @@ export const getTodayOverview = async (req, res) => {
       return {
         orderId: o._id,
         orderNumber: o.orderNumber,
+        fastDelivery: o.fastDelivery,
+        deliveryCharge: o.deliveryCharge,
+        assignedAt: o.updatedAt || null,
         slot: { date: o.slotDate, start: o.slotStart, end: o.slotEnd },
-        consumer: o.consumerId ? { name: o.consumerId.name, mobile: o.consumerId.mobile } : null,
-        address: o.addressId ? {
-          line: o.addressId.addressLine,
-          label: o.addressId.addressName,
-          type: o.addressId.addressType,
-          lat: o.addressId.lat,
-          long: o.addressId.long,
-          geolocation: o.addressId.geolocation,
-        } : null,
+        consumer: o.consumerId
+          ? {
+              name: o.consumerId.name,
+              mobile: o.consumerId.mobile,
+              isFavorite: favoriteIds.includes(String(o.consumerId._id)),
+            }
+          : null,
+        address: o.addressId
+          ? {
+              line: o.addressId.addressLine,
+              label: o.addressId.addressName,
+              type: o.addressId.addressType,
+              lat: o.addressId.lat || null,
+              long: o.addressId.long || null,
+              geolocation: o.addressId.geolocation || null,
+            }
+          : null,
         items: o.items.map((i) => ({
           productId: i.productId?._id || i.productId,
           name: i.productId?.name || i.name,
@@ -486,17 +569,29 @@ export const getTodayOverview = async (req, res) => {
       return {
         orderId: o._id,
         orderNumber: o.orderNumber,
+        fastDelivery: o.fastDelivery,
+        deliveryCharge: o.deliveryCharge,
+        assignedAt: o.updatedAt || null,
+        slot: { date: o.slotDate, start: o.slotStart, end: o.slotEnd },
         rejectedAt: o.rejectedAt,
         rejectionReason: o.rejectionReason || null,
-        consumer: o.consumerId ? { name: o.consumerId.name, mobile: o.consumerId.mobile } : null,
-        address: o.addressId ? {
-          line: o.addressId.addressLine,
-          label: o.addressId.addressName,
-          type: o.addressId.addressType,
-          lat: o.addressId.lat,
-          long: o.addressId.long,
-          geolocation: o.addressId.geolocation,
-        } : null,
+        consumer: o.consumerId
+          ? {
+              name: o.consumerId.name,
+              mobile: o.consumerId.mobile,
+              isFavorite: dp.favoriteConsumers.includes(o.consumerId._id),
+            }
+          : null,
+        address: o.addressId
+          ? {
+              line: o.addressId.addressLine,
+              label: o.addressId.addressName,
+              type: o.addressId.addressType,
+              lat: o.addressId.lat || null,
+              long: o.addressId.long || null,
+              geolocation: o.addressId.geolocation || null,
+            }
+          : null,
         items: o.items.map((i) => ({
           productId: i.productId?._id || i.productId,
           name: i.productId?.name || i.name,
@@ -528,7 +623,6 @@ export const getTodayOverview = async (req, res) => {
       rejectedOrders: todayRejected.map(cleanRejected),
       allTodayOrders: [...toBeDelivered, ...delivered].map(clean),
     });
-
   } catch (err) {
     res.status(500).json({
       message: "Error fetching today's overview",
@@ -537,11 +631,14 @@ export const getTodayOverview = async (req, res) => {
   }
 };
 
-
 // Get order history with filters (date + status)
 export const getOrderHistory = async (req, res) => {
   try {
     const dpId = req.deliveryPerson._id;
+
+    const dp = await DeliveryPerson.findById(dpId).lean();
+    const favoriteIds = dp?.favoriteConsumers?.map((id) => String(id)) || [];
+
     const {
       startDate,
       endDate,
@@ -578,9 +675,12 @@ export const getOrderHistory = async (req, res) => {
 
     const orders = await Order.find(filter)
       .populate("consumerId", "name mobile")
-      .populate("addressId", "addressLine addressName addressType")
+      .populate(
+        "addressId",
+        "addressLine addressName addressType lat long geolocation"
+      )
       .populate("items.productId", "name")
-      .populate("storeId", "store_name store_address")
+      .populate("storeId", "store_name store_address lat long geolocation")
       .sort({ deliveredAt: -1, rejectedAt: -1 })
       .skip(skip)
       .limit(Number(limit));
@@ -592,40 +692,40 @@ export const getOrderHistory = async (req, res) => {
     const cleanData = orders.map((order) => ({
       orderId: order._id,
       orderNumber: order.orderNumber,
-
+      deliveryCharge: order.deliveryCharge,
+      fastDelivery: order.fastDelivery,
+      assignedAt: order.updatedAt || null,
       slot: {
         date: order.slotDate,
         start: order.slotStart,
         end: order.slotEnd,
       },
-
       consumer: order.consumerId
         ? {
             name: order.consumerId.name,
             mobile: order.consumerId.mobile,
+            isFavorite: favoriteIds.includes(String(order.consumerId._id)),
           }
         : null,
-
       address: order.addressId
         ? {
             line: order.addressId.addressLine,
             label: order.addressId.addressName,
             type: order.addressId.addressType,
-            lat: order.addressId.lat,
-            long: order.addressId.long,
-            geolocation: order.addressId.geolocation,
+            lat: order.addressId.lat || null,
+            long: order.addressId.long || null,
+            geolocation: order.addressId.geolocation || null,
           }
         : null,
       store: order.storeId
         ? {
             name: order.storeId.store_name,
             address: order.storeId.store_address,
-            lat: order.storeId.lat,
-            long: order.storeId.long,
-            geolocation: order.storeId.geolocation,
+            lat: order.storeId.lat || null,
+            long: order.storeId.long || null,
+            geolocation: order.storeId.geolocation || null,
           }
         : null,
-
       items: order.items.map((i) => ({
         productId: i.productId?._id || i.productId,
         name: i.productId?.name || i.name,
@@ -633,7 +733,6 @@ export const getOrderHistory = async (req, res) => {
         price: i.price,
         total: i.total,
       })),
-
       totalAmount: order.totalAmount,
       paymentMode: order.paymentMode,
       orderStatus: order.orderStatus,
@@ -676,32 +775,36 @@ export const getDeliveryMetrics = async (req, res) => {
     const dpId = req.deliveryPerson._id;
 
     const dp = await DeliveryPerson.findById(dpId);
-    if (!dp) {
+    if (!dp)
       return res.status(404).json({ message: "Delivery person not found" });
-    }
+    const allDeliveredOrders = await Order.find(
+      {
+        deliveryPersonId: dpId,
+        orderStatus: "DELIVERED",
+        deliveredAt: { $exists: true, $ne: null },
+      },
+      "deliveredAt deliveryCharge deliveryRating"
+    ).lean();
 
-    // Fetch ONLY delivered orders with a valid deliveredAt timestamp
-    const allDeliveredOrders = await Order.find({
-      deliveryPersonId: dpId,
-      orderStatus: "DELIVERED",
-      deliveredAt: { $exists: true, $ne: null },
-    }).lean();
-
-    // FETCH only rejected orders with a valid rejectedAt timestamp
-    const rejectedOrders = await Order.find({
-      deliveryPersonId: dpId,
-      orderStatus: "REJECTED_BY_DP",
-      rejectedAt: { $exists: true, $ne: null },
-    }).lean();
+    const rejectedOrders = await Order.find(
+      {
+        deliveryPersonId: dpId,
+        orderStatus: "REJECTED_BY_DP",
+        rejectedAt: { $exists: true, $ne: null },
+      },
+      "rejectedAt"
+    ).lean();
 
     const today = dayjs();
     const startOfWeek = today.startOf("isoWeek");
     const endOfWeek = today.endOf("isoWeek");
     const startOfMonth = today.startOf("month");
     const endOfMonth = today.endOf("month");
-    const perDeliveryEarning = dp.earningsPerDelivery || 0;
 
-    // helper for day js functions for delivered metrics
+    // Helper to sum actual deliveryCharge
+    const sumEarnings = (orders) =>
+      orders.reduce((sum, o) => sum + (o.deliveryCharge || 0), 0);
+
     const isDeliveredToday = (o) =>
       o.deliveredAt && dayjs(o.deliveredAt).isSame(today, "day");
 
@@ -713,110 +816,118 @@ export const getDeliveryMetrics = async (req, res) => {
       o.deliveredAt &&
       dayjs(o.deliveredAt).isBetween(startOfMonth, endOfMonth, "day", "[]");
 
-    // helper for day js functions for rejected metrics
-    const isRejectedToday = (o) =>
-      o.rejectedAt && dayjs(o.rejectedAt).isSame(today, "day");
+    // Filter orders
+    const todayDelivered = allDeliveredOrders.filter(isDeliveredToday);
+    const weekDelivered = allDeliveredOrders.filter(isDeliveredThisWeek);
+    const monthDelivered = allDeliveredOrders.filter(isDeliveredThisMonth);
 
-    const isRejectedThisWeek = (o) =>
-      o.rejectedAt &&
-      dayjs(o.rejectedAt).isBetween(startOfWeek, endOfWeek, "day", "[]");
-
-    const isRejectedThisMonth = (o) =>
-      o.rejectedAt &&
-      dayjs(o.rejectedAt).isBetween(startOfMonth, endOfMonth, "day", "[]");
-
-    // Calculations
-    const todayDeliveries = allDeliveredOrders.filter(isDeliveredToday).length;
-    const weekDeliveries =
-      allDeliveredOrders.filter(isDeliveredThisWeek).length;
-    const monthDeliveries =
-      allDeliveredOrders.filter(isDeliveredThisMonth).length;
+    // Count
+    const todayDeliveries = todayDelivered.length;
+    const weekDeliveries = weekDelivered.length;
+    const monthDeliveries = monthDelivered.length;
     const totalDeliveries = allDeliveredOrders.length;
-    const todayRejections = rejectedOrders.filter(isRejectedToday).length;
-    const weekRejections = rejectedOrders.filter(isRejectedThisWeek).length;
-    const monthRejections = rejectedOrders.filter(isRejectedThisMonth).length;
+
+    // Earnings
+    const todayEarnings = sumEarnings(todayDelivered);
+    const weekEarnings = sumEarnings(weekDelivered);
+    const monthEarnings = sumEarnings(monthDelivered);
+    const totalEarnings = sumEarnings(allDeliveredOrders);
+
+    // Rejection counts
+    const todayRejections = rejectedOrders.filter((o) =>
+      dayjs(o.rejectedAt).isSame(today, "day")
+    ).length;
+    const weekRejections = rejectedOrders.filter((o) =>
+      dayjs(o.rejectedAt).isBetween(startOfWeek, endOfWeek, "day", "[]")
+    ).length;
+    const monthRejections = rejectedOrders.filter((o) =>
+      dayjs(o.rejectedAt).isBetween(startOfMonth, endOfMonth, "day", "[]")
+    ).length;
     const totalRejections = rejectedOrders.length;
 
-    //WEEKLY BREAKDOWN (Sun–Sat) ---
+    // Ratings
+    const ratedOrders = allDeliveredOrders.filter((o) => o.deliveryRating);
+    const todayRatings = todayDelivered.filter((o) => o.deliveryRating).length;
+    const weekRatings = weekDelivered.filter((o) => o.deliveryRating).length;
+    const monthRatings = monthDelivered.filter((o) => o.deliveryRating).length;
+    const totalRatings = ratedOrders.length;
+
+    // Weekly breakdown with deliveryCharge earnings
     const weekBreakdown = [];
     for (let i = 0; i < 7; i++) {
       const day = startOfWeek.add(i, "day");
-
-      const dayCount = allDeliveredOrders.filter(
-        (o) => o.deliveredAt && dayjs(o.deliveredAt).isSame(day, "day")
-      ).length;
+      const dayOrders = allDeliveredOrders.filter((o) =>
+        dayjs(o.deliveredAt).isSame(day, "day")
+      );
 
       weekBreakdown.push({
-        day: day.format("ddd"), // Sun, Mon, Tue, ...
+        day: day.format("ddd"),
         date: day.format("YYYY-MM-DD"),
-        deliveries: dayCount,
-        earnings: dayCount * perDeliveryEarning,
+        deliveries: dayOrders.length,
+        earnings: sumEarnings(dayOrders),
       });
     }
 
-    // MONTHLY BREAKDOWN
+    // Monthly breakdown
     const monthBreakdown = [];
     let cursor = startOfMonth.clone();
     let weekIndex = 1;
 
     while (cursor.isBefore(endOfMonth) || cursor.isSame(endOfMonth, "day")) {
       const weekStart = cursor.clone();
-
-      // Add 6 days but make sure it stays inside month
       let weekEnd = weekStart.clone().add(6, "day");
-      if (weekEnd.isAfter(endOfMonth)) {
-        weekEnd = endOfMonth.clone();
-      }
+      if (weekEnd.isAfter(endOfMonth)) weekEnd = endOfMonth.clone();
 
-      // Count deliveries in this week segment
-      const weekCount = allDeliveredOrders.filter(
-        (o) =>
-          o.deliveredAt &&
-          dayjs(o.deliveredAt).isBetween(weekStart, weekEnd, "day", "[]")
-      ).length;
+      const weekOrders = allDeliveredOrders.filter((o) =>
+        dayjs(o.deliveredAt).isBetween(weekStart, weekEnd, "day", "[]")
+      );
 
       monthBreakdown.push({
         week: `Week ${weekIndex}`,
         start: weekStart.format("YYYY-MM-DD"),
         end: weekEnd.format("YYYY-MM-DD"),
-        deliveries: weekCount,
-        earnings: weekCount * perDeliveryEarning,
+        deliveries: weekOrders.length,
+        earnings: sumEarnings(weekOrders),
       });
 
-      // Move cursor to next day after this week
       cursor = weekEnd.clone().add(1, "day");
       weekIndex++;
     }
 
+    // Response
     res.json({
       today: {
         deliveries: todayDeliveries,
-        earnings: todayDeliveries * perDeliveryEarning,
+        earnings: todayEarnings,
         rejections: todayRejections,
+        ratings: todayRatings,
       },
       week: {
         deliveries: weekDeliveries,
-        earnings: weekDeliveries * perDeliveryEarning,
+        earnings: weekEarnings,
         rejections: weekRejections,
+        ratings: weekRatings,
         breakdown: weekBreakdown,
       },
       month: {
         deliveries: monthDeliveries,
-        earnings: monthDeliveries * perDeliveryEarning,
+        earnings: monthEarnings,
         rejections: monthRejections,
+        ratings: monthRatings,
         breakdown: monthBreakdown,
       },
       total: {
         deliveries: totalDeliveries,
-        earnings: totalDeliveries * perDeliveryEarning,
+        earnings: totalEarnings,
         rejections: totalRejections,
+        averageRating: dp.averageRating || 0,
+        ratingCount: totalRatings,
       },
     });
   } catch (err) {
-    res.status(500).json({
-      message: "Error calculating metrics",
-      error: err.message,
-    });
+    res
+      .status(500)
+      .json({ message: "Error calculating metrics", error: err.message });
   }
 };
 

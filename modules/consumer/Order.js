@@ -42,6 +42,8 @@ const orderSchema = new mongoose.Schema(
     razorpayPaymentId: String,
     razorpaySignature: String,
     orderNumber: { type: String, unique: true, index: true },
+    fastDelivery: { type: Boolean, default: false },
+    deliveryCharge: { type: Number, default: 25 },
     orderStatus: {
       type: String,
       enum: [
@@ -67,7 +69,7 @@ const orderSchema = new mongoose.Schema(
     },
     deliveryRating: { type: Number, min: 1, max: 5 },
     deliveredAt: Date,
-    rejectionReason: { type: String },
+    rejectionReason: { type: String, default: null },
     rejectedAt: { type: Date },
   },
   { timestamps: true }

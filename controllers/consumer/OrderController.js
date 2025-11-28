@@ -375,56 +375,61 @@ export const updatePaymentStatus = async (req, res) => {
   }
 };
 
-// rating the delivery person
+// rate the delivery person
 export const rateDelivery = async (req, res) => {
   try {
     const consumerId = req.consumer._id;
     const { orderId, rating } = req.body;
 
-    if (!rating || rating < 1 || rating > 5)
+    if (!rating || rating < 1 || rating > 5) {
       return res.status(400).json({ message: "Rating must be between 1 and 5" });
+    }
 
-    // ensure order is delivered and deliveredAt exists
     const order = await Order.findOne({
       _id: orderId,
       consumerId,
       orderStatus: "DELIVERED",
-      deliveredAt: { $exists: true }
     });
 
     if (!order)
       return res.status(400).json({ message: "Order not delivered yet, can't rate" });
 
     if (!order.deliveryPersonId)
-      return res.status(400).json({ message: "No delivery person assigned for this order" });
+      return res.status(400).json({ message: "No delivery person assigned" });
 
-    // save rating
+    if (order.deliveryRating) {
+      return res.status(400).json({
+        message: "You have already rated this delivery"
+      });
+    }
+
+    // Save rating to order
     order.deliveryRating = rating;
     await order.save();
 
-    // update DP average rating
     const dp = await DeliveryPerson.findById(order.deliveryPersonId);
-    if (!dp) return res.status(404).json({ message: "Delivery person not found" });
+    if (!dp)
+      return res.status(404).json({ message: "Delivery person not found" });
 
-    const ratedOrders = await Order.find({
-      deliveryPersonId: dp._id,
-      deliveryRating: { $exists: true, $ne: null }
-    });
+    // Update DP rating average using O(1) formula
+    const totalRatings = dp.ratingCount || 0;
+    const newAverage =
+      ((dp.averageRating || 0) * totalRatings + rating) / (totalRatings + 1);
 
-    const avg =
-      ratedOrders.reduce((sum, o) => sum + o.deliveryRating, 0) /
-      ratedOrders.length;
+    dp.averageRating = Number(newAverage.toFixed(2));
+    dp.ratingCount = totalRatings + 1;
 
-    dp.averageRating = Number(avg.toFixed(2));
     await dp.save();
 
     res.json({
       message: "Thank you for rating!",
       rating,
-      newAverage: dp.averageRating
+      newAverage: dp.averageRating,
     });
+
   } catch (err) {
     res.status(500).json({ message: "Rating error", error: err.message });
   }
 };
+
 
