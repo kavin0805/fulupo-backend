@@ -17,6 +17,14 @@ export const approveOrder = async (req, res) => {
       });
     }
 
+    // Calculate delivery charge
+    const BASE_CHARGE = 25;
+    const FAST_EXTRA = BASE_CHARGE * 0.3;
+
+    order.deliveryCharge = order.fastDelivery
+      ? BASE_CHARGE + FAST_EXTRA
+      : BASE_CHARGE;
+
     // Approve order
     order.orderStatus = "WAITING_FOR_DP_ASSIGNMENT";
     await order.save();

@@ -15,7 +15,6 @@ const deliveryPersonSchema = new mongoose.Schema(
     otp: String,
     otpExpiry: Date,
     isVerified: { type: Boolean, default: false },
-
     // Vehicle details
     vehicleNumber: String,
     vehiclePhoto: String,
@@ -45,7 +44,9 @@ const deliveryPersonSchema = new mongoose.Schema(
       default: "Active",
     },
     isAvailable: { type: Boolean, default: true },
-
+    favoriteConsumers: [
+      { type: mongoose.Schema.Types.ObjectId, ref: "Consumer" },
+    ],
     // Metrics for performance tracking
     totalDeliveries: { type: Number, default: 0 },
     completedDeliveries: { type: Number, default: 0 },
